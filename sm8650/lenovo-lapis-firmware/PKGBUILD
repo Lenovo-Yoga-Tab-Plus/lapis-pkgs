@@ -1,6 +1,6 @@
 pkgname=lenovo-lapis-firmware
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Firmware staging helper for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
@@ -14,11 +14,10 @@ package() {
   install -Dm755 pil_squash.py \
     "$pkgdir/usr/lib/lapis/pil_squash.py"
 
-  # Device blobs stay out of this repo. The package still builds
-  # without them: the image gets the upstream linux-firmware packages,
-  # and a tree can be packed in by setting LAPIS_FIRMWARE_ROOT.
-  firmware_root="${LAPIS_FIRMWARE_ROOT:-}"
-  if [ -z "$firmware_root" ] || [ ! -d "$firmware_root" ]; then
+  # The device blobs ship in firmware/ next to this PKGBUILD.
+  # LAPIS_FIRMWARE_ROOT replaces that tree when a build has a newer dump.
+  firmware_root="${LAPIS_FIRMWARE_ROOT:-$startdir/firmware}"
+  if [ ! -d "$firmware_root/usr/lib/firmware" ] && [ ! -d "$firmware_root/qcom" ]; then
     echo "Device firmware tree not available; shipping the staging scripts only."
     return 0
   fi

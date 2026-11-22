@@ -13,7 +13,7 @@ The EndeavourOS image builder lives in the sibling `endeavouros-lapis` tree and 
 - `scripts/`: build the pacman repo, compose the database, and stage a Pages site
 - `.github/workflows/publish.yml`: builds the pacman repo on an ARM runner
 
-The kernel source is [linux-lapis](https://github.com/Lenovo-Yoga-Tab-Plus/linux-lapis). The local checkout stays at `linux-tb520fu`. Firmware blobs, `sn.img`, keys, partition backups, and packed boot images stay out of this tree.
+The kernel source is [linux-lapis](https://github.com/Lenovo-Yoga-Tab-Plus/linux-lapis). The local checkout stays at `linux-tb520fu`. `sn.img`, keys, partition backups, and packed boot images stay out of this tree. The Lenovo device firmware is in `sm8650/lenovo-lapis-firmware/firmware`.
 
 ## Local build
 
@@ -37,7 +37,7 @@ docker run --rm -v "$PWD:/work" -w /work lapis-pkgs-builder scripts/compose-repo
 scripts/stage-pages.sh
 ```
 
-`linux-tb520fu` is not installed into the builder image. The builder also does not install `linux-firmware-qcom`; the image build does. Set `LAPIS_FIRMWARE_ROOT` to a firmware directory when building `lenovo-lapis-firmware` if the package should contain the device blobs. Without that directory the package still builds and ships only the staging scripts.
+`linux-tb520fu` is not installed into the builder image. The builder also does not install `linux-firmware-qcom`; the image build does. `lenovo-lapis-firmware` packs the device blobs from `firmware/` next to its PKGBUILD. Set `LAPIS_FIRMWARE_ROOT` to use a different tree.
 
 To build one package on the host:
 
