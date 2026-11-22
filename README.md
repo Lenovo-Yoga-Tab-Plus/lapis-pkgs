@@ -37,7 +37,7 @@ docker run --rm -v "$PWD:/work" -w /work lapis-pkgs-builder scripts/compose-repo
 scripts/stage-pages.sh
 ```
 
-`linux-tb520fu` is not installed into the builder image. The builder also does not install `linux-firmware-qcom`; the image build does. `lenovo-lapis-firmware` packs the device blobs from `firmware/` next to its PKGBUILD. Set `LAPIS_FIRMWARE_ROOT` to use a different tree.
+`linux-tb520fu` is not installed into the builder image. The builder also does not install `linux-firmware-qcom`; the image build does. `lenovo-lapis-firmware` packs the device blobs from `firmware/` next to its PKGBUILD. It leaves out the generic Bluetooth, SQE, and GMU files that `linux-firmware-atheros` and `linux-firmware-qcom` already install. Set `LAPIS_FIRMWARE_ROOT` to use a different tree.
 
 To build one package on the host:
 

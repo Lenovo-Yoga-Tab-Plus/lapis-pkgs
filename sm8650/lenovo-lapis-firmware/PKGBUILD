@@ -1,10 +1,10 @@
 pkgname=lenovo-lapis-firmware
 pkgver=1.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Firmware staging helper for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
-depends=('linux-firmware-qcom')
+depends=('linux-firmware-qcom' 'linux-firmware-atheros')
 source=('stage-lapis-firmware.sh' 'pil_squash.py')
 sha256sums=('SKIP' 'SKIP')
 
@@ -32,6 +32,25 @@ package() {
 
   mkdir -p "$pkgdir/usr/lib/firmware"
   cp -a "$src_fw/." "$pkgdir/usr/lib/firmware/"
+
+  # linux-firmware-atheros and linux-firmware-qcom already own these paths.
+  # Shipping a second copy makes pacman abort the image install.
+  local owned
+  for owned in \
+    qca/hmtbtfw20.tlv \
+    qca/hmtnv20.b10f \
+    qca/hmtnv20.b112 \
+    qca/hmtnv20.bin \
+    qcom/gen70900_sqe.fw \
+    qcom/gmu_gen70900.bin
+  do
+    rm -f \
+      "$pkgdir/usr/lib/firmware/$owned" \
+      "$pkgdir/usr/lib/firmware/$owned.zst" \
+      "$pkgdir/usr/lib/firmware/$owned.xz"
+  done
+  find "$pkgdir/usr/lib/firmware" -type d -empty -delete
+
   if [ -n "$src_share" ] && [ -d "$src_share" ]; then
     mkdir -p "$pkgdir/usr/share/qcom"
     cp -a "$src_share/." "$pkgdir/usr/share/qcom/"
