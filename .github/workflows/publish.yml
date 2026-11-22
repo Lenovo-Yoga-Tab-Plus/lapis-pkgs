@@ -22,6 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          repository: Lenovo-Yoga-Tab-Plus/linux-lapis
+          ref: main
+          path: kernel
+          fetch-depth: 1
+
       - name: Compute cache key
         id: cache-key
         run: |
@@ -34,7 +42,8 @@ jobs:
               config/repo.env \
               scripts/build-local-packages.sh \
               scripts/compose-repo.sh \
-              scripts/fetch-upstream.py
+              scripts/fetch-upstream.py \
+              "$(git -C kernel rev-parse HEAD)"
             find common sm8650 -type f \
               ! -path '*/src/*' \
               ! -path '*/pkg/*' \
@@ -66,7 +75,7 @@ jobs:
             -v "$PWD/config:/config" \
             -v "$PWD/common:/work/common" \
             -v "$PWD/sm8650:/work/sm8650" \
-            -v "$PWD/../linux-tb520fu:/kernel" \
+            -v "$PWD/kernel:/kernel" \
             lapis-pkgs-builder /usr/local/bin/build-local-packages.sh
 
       - name: Fix ownership

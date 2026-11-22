@@ -117,6 +117,11 @@ for pkg in "${PKGS[@]}"; do
     cache_file="$CACHE_DIR/$pkg"
 
     pkg_source_hash="$(compute_pkg_source_hash "$pkg_dir")"
+    # The kernel package copies KERNEL_SRC during prepare(), so a new kernel
+    # commit has to miss this cache even when the PKGBUILD is unchanged.
+    if [ "$pkg" = "linux-lapis" ] && [ -d "${KERNEL_SRC:-}/.git" ]; then
+        pkg_source_hash="$(printf '%s %s\n' "$pkg_source_hash" "$(git -C "$KERNEL_SRC" rev-parse HEAD)" | sha256sum | awk '{print $1}')"
+    fi
     built_packages=()
 
     if [ -f "$cache_file" ]; then
