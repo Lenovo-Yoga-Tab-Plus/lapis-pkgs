@@ -37,7 +37,7 @@ docker run --rm -v "$PWD:/work" -w /work lapis-pkgs-builder scripts/compose-repo
 scripts/stage-pages.sh
 ```
 
-`linux-tb520fu` is not installed into the builder image. Set `LAPIS_FIRMWARE_ROOT` to a firmware directory when building `lenovo-lapis-firmware` if the package should contain blobs. Without that variable the package ships only the staging script.
+`linux-tb520fu` is not installed into the builder image. The builder also does not install `linux-firmware-qcom`; the image build does. Set `LAPIS_FIRMWARE_ROOT` to a firmware directory when building `lenovo-lapis-firmware` if the package should contain the device blobs. Without that directory the package still builds and ships only the staging scripts.
 
 To build one package on the host:
 

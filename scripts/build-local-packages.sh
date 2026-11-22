@@ -152,6 +152,14 @@ for pkg in "${PKGS[@]}"; do
             local_dependency_archives=()
 
             for dependency in "${pkg_dependencies[@]}"; do
+                # linux-firmware* is a runtime dependency of the image, not of
+                # this build. Installing it here pulls in the whole split
+                # firmware set and is what fails the runner.
+                case "$dependency" in
+                    linux-firmware|linux-firmware-*)
+                        continue
+                        ;;
+                esac
                 if printf '%s\n' "${PKGS[@]}" | grep -Fxq "$dependency"; then
                     if local_archive="$(find_local_dependency_archives "$dependency")"; then
                         local_dependency_archives+=("$local_archive")

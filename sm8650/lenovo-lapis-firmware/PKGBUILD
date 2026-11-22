@@ -14,14 +14,27 @@ package() {
   install -Dm755 pil_squash.py \
     "$pkgdir/usr/lib/lapis/pil_squash.py"
 
-  # Blobs stay out of this repo. Point LAPIS_FIRMWARE_ROOT at a directory
-  # laid out like a rootfs firmware tree (usr/lib/firmware/...) to pack them.
-  if [ -n "${LAPIS_FIRMWARE_ROOT:-}" ]; then
-    if [ ! -d "$LAPIS_FIRMWARE_ROOT" ]; then
-      echo "LAPIS_FIRMWARE_ROOT is not a directory: $LAPIS_FIRMWARE_ROOT" >&2
-      exit 1
-    fi
-    mkdir -p "$pkgdir/usr/lib/firmware"
-    cp -a "$LAPIS_FIRMWARE_ROOT/." "$pkgdir/usr/lib/firmware/"
+  # Device blobs stay out of this repo. The package still builds
+  # without them: the image gets the upstream linux-firmware packages,
+  # and a tree can be packed in by setting LAPIS_FIRMWARE_ROOT.
+  firmware_root="${LAPIS_FIRMWARE_ROOT:-}"
+  if [ -z "$firmware_root" ] || [ ! -d "$firmware_root" ]; then
+    echo "Device firmware tree not available; shipping the staging scripts only."
+    return 0
+  fi
+
+  if [ -d "$firmware_root/usr/lib/firmware" ]; then
+    src_fw="$firmware_root/usr/lib/firmware"
+    src_share="$firmware_root/usr/share/qcom"
+  else
+    src_fw="$firmware_root"
+    src_share=""
+  fi
+
+  mkdir -p "$pkgdir/usr/lib/firmware"
+  cp -a "$src_fw/." "$pkgdir/usr/lib/firmware/"
+  if [ -n "$src_share" ] && [ -d "$src_share" ]; then
+    mkdir -p "$pkgdir/usr/share/qcom"
+    cp -a "$src_share/." "$pkgdir/usr/share/qcom/"
   fi
 }

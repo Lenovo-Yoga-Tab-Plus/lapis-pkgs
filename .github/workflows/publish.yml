@@ -68,6 +68,10 @@ jobs:
       - name: Build local packages
         run: |
           mkdir -p repo/repo/.build-cache
+          firmware_args=()
+          if [ -d firmware/usr/lib/firmware ] || [ -d firmware/qcom ]; then
+            firmware_args=(-e LAPIS_FIRMWARE_ROOT=/firmware -v "$PWD/firmware:/firmware:ro")
+          fi
           docker run --rm \
             -e LOCAL_BUILDER_ROOT=/work \
             -e KERNEL_SRC=/kernel \
@@ -76,6 +80,7 @@ jobs:
             -v "$PWD/common:/work/common" \
             -v "$PWD/sm8650:/work/sm8650" \
             -v "$PWD/kernel:/kernel" \
+            "${firmware_args[@]}" \
             lapis-pkgs-builder /usr/local/bin/build-local-packages.sh
 
       - name: Fix ownership
