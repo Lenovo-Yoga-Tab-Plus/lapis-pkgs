@@ -34,6 +34,8 @@ jobs:
         id: cache-key
         run: |
           set -euo pipefail
+          # The kernel revision is text, not a path. Passing it to sha256sum
+          # makes the job look for a file named after the commit.
           {
             printf '%s\0' \
               Dockerfile \
@@ -42,13 +44,14 @@ jobs:
               config/repo.env \
               scripts/build-local-packages.sh \
               scripts/compose-repo.sh \
-              scripts/fetch-upstream.py \
-              "$(git -C kernel rev-parse HEAD)"
+              scripts/fetch-upstream.py
             find common sm8650 -type f \
               ! -path '*/src/*' \
               ! -path '*/pkg/*' \
               -print0
-          } | sort -z | xargs -0 sha256sum | sha256sum \
+          } | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/cache-inputs.txt"
+          git -C kernel rev-parse HEAD >> "$RUNNER_TEMP/cache-inputs.txt"
+          sha256sum "$RUNNER_TEMP/cache-inputs.txt" \
             | awk '{print "hash="$1}' >> "$GITHUB_OUTPUT"
 
       - name: Restore build cache
