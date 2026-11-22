@@ -1,0 +1,32 @@
+pkgname=hexagonrpc
+pkgver=0.4.0
+pkgrel=2
+_commit=40e50412812adce9dddc2be9a4510ebce05eef89
+pkgdesc='FastRPC file server for the TB520FU ADSP sensor process'
+arch=('aarch64')
+url='https://github.com/linux-msm/hexagonrpc'
+license=('GPL-3.0-only')
+depends=('systemd')
+makedepends=('meson' 'gcc' 'git')
+source=("git+https://github.com/linux-msm/hexagonrpc.git#commit=${_commit}"
+        'hexagonrpcd-adsp-sensorspd.service'
+        'iio-sensor-proxy-ssc.conf'
+        '90-lapis-ssc.rules')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+build() {
+  cd hexagonrpc
+  meson setup build --prefix=/usr --libexecdir=lib
+  ninja -C build
+}
+
+package() {
+  cd hexagonrpc
+  DESTDIR="$pkgdir" ninja -C build install
+  install -Dm644 ../hexagonrpcd-adsp-sensorspd.service \
+    "$pkgdir/usr/lib/systemd/system/hexagonrpcd-adsp-sensorspd.service"
+  install -Dm644 ../iio-sensor-proxy-ssc.conf \
+    "$pkgdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/lapis-ssc.conf"
+  install -Dm644 ../90-lapis-ssc.rules \
+    "$pkgdir/usr/lib/udev/rules.d/90-lapis-ssc.rules"
+}

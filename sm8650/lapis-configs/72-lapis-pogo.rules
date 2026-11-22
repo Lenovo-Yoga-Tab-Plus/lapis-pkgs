@@ -1,0 +1,9 @@
+# Runs before 73-seat-late.rules so the uaccess builtin grants the session
+# the event nodes. A seat tag only on the parent input device leaves GNOME
+# unable to open the keyboard and touchpad.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="Lenovo TB520FU Keyboard", \
+  TAG+="seat", TAG+="uaccess", ENV{ID_SEAT}="seat0"
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="Lenovo TB520FU Touchpad", \
+  TAG+="seat", TAG+="uaccess", ENV{ID_SEAT}="seat0"

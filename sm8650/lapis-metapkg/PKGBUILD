@@ -1,0 +1,27 @@
+pkgname=lapis-metapkg
+pkgver=1.0
+pkgrel=3
+pkgdesc='Lenovo Yoga Tab Plus support meta package'
+arch=('any')
+license=('MIT')
+depends=(
+  'linux-lapis'
+  'lenovo-lapis-firmware'
+  'alsa-ucm-conf-sm8650'
+  'lapis-sound-conf'
+  'lapis-configs'
+  'lapis-utils'
+  'lapis-hotspot'
+  'lapis-adbd'
+  'libcamera'
+  'qbootctl'
+  'qrtr'
+  'hexagonrpc'
+  'iio-sensor-proxy'
+  'mesa'
+  'wireless-regdb'
+)
+
+package() {
+  mkdir -p "$pkgdir"
+}

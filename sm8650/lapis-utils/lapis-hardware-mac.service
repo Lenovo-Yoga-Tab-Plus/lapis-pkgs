@@ -1,0 +1,15 @@
+[Unit]
+Description=Load TB520FU factory WLAN and Bluetooth addresses
+Requires=mnt-persist.mount
+After=mnt-persist.mount systemd-udevd.service systemd-modules-load.service
+Wants=bluetooth.service
+Before=NetworkManager.service bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lapis-hardware-mac
+TimeoutStartSec=120
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

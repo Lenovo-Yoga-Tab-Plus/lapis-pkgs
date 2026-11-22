@@ -1,0 +1,12 @@
+qbootctl
+qrtr
+hexagonrpc
+linux-lapis
+lenovo-lapis-firmware
+alsa-ucm-conf-sm8650
+lapis-sound-conf
+lapis-configs
+lapis-utils
+lapis-hotspot
+lapis-adbd
+lapis-metapkg

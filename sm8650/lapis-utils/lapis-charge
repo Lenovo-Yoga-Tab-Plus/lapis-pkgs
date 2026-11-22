@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""TB520FU charge-limit helper using battmgr start/end thresholds only."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+
+BATTERY = Path("/sys/class/power_supply/qcom-battmgr-bat")
+CONFIG = Path("/etc/lapis-charge.json")
+
+
+def read(name):
+    return (BATTERY / name).read_text().strip()
+
+
+def number(name):
+    try:
+        return int(read(name))
+    except (OSError, ValueError):
+        return None
+
+
+def status():
+    result = {name: number(name) for name in (
+        "capacity", "state_of_health", "cycle_count", "charge_full",
+        "charge_full_design", "current_now", "voltage_now", "temp",
+        "charge_control_start_threshold", "charge_control_end_threshold")}
+    result["model"] = read("model_name")
+    result["status"] = read("status")
+    full, design = result["charge_full"], result["charge_full_design"]
+    result["full_to_design_percent"] = (
+        round(full * 100 / design, 2) if full and design and design > 0 else None)
+    return result
+
+
+def validate(config):
+    if not isinstance(config, dict) or set(config) != {"start", "end"}:
+        raise ValueError("config must contain integer start and end")
+    if type(config["start"]) is not int or type(config["end"]) is not int:
+        raise ValueError("thresholds must be integers")
+    if not 0 <= config["start"] < config["end"] <= 100:
+        raise ValueError("need 0 <= start < end <= 100")
+    return config
+
+
+def write(name, value):
+    (BATTERY / name).write_text(str(value) + "\n")
+
+
+def apply(config):
+    validate(config)
+    start = number("charge_control_start_threshold")
+    end = number("charge_control_end_threshold")
+    if start is None or end is None:
+        raise RuntimeError("charge_control thresholds are unavailable")
+    if config["start"] >= end:
+        write("charge_control_end_threshold", config["end"])
+        write("charge_control_start_threshold", config["start"])
+    else:
+        write("charge_control_start_threshold", config["start"])
+        write("charge_control_end_threshold", config["end"])
+
+
+def save(config):
+    temporary = CONFIG.with_suffix(".new")
+    with temporary.open("w") as stream:
+        json.dump(config, stream, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.replace(CONFIG)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="TB520FU charge limits")
+    parser.add_argument("--save", action="store_true",
+                        help="persist settings for lapis-charge.service")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("status")
+    commands.add_parser("health")
+    limit = commands.add_parser("limit")
+    limit.add_argument("start", type=int)
+    limit.add_argument("end", type=int)
+    commands.add_parser("reset")
+    commands.add_parser("apply")
+    arguments = parser.parse_args()
+
+    if arguments.command in ("status", "health"):
+        print(json.dumps(status(), indent=2))
+        return
+
+    if os.geteuid() != 0:
+        raise PermissionError("run modifying commands as root")
+
+    if arguments.command == "apply":
+        config = validate(json.loads(CONFIG.read_text()))
+    elif arguments.command == "limit":
+        config = {"start": arguments.start, "end": arguments.end}
+    elif arguments.command == "reset":
+        config = {"start": 95, "end": 100}
+    else:
+        raise RuntimeError(arguments.command)
+
+    apply(config)
+    if arguments.save:
+        save(config)
+    print(json.dumps(status(), indent=2))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, PermissionError, json.JSONDecodeError) as error:
+        print(f"lapis-charge: {error}", file=sys.stderr)
+        sys.exit(1)

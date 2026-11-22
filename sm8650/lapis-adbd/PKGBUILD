@@ -1,0 +1,72 @@
+pkgname=lapis-adbd
+pkgver=34.0.5
+pkgrel=1
+pkgdesc='ADB gadget on the Lenovo Yoga Tab Plus USB NCM interface'
+arch=('aarch64')
+license=('Apache-2.0' 'BSD-3-Clause')
+depends=('bash')
+makedepends=('curl')
+source=(
+  'lapis-adbd-gadget'
+  'lapis-adbd-run'
+  'lapis-adbd.service'
+  "https://deb.debian.org/debian/pool/main/a/android-platform-tools/adbd_${pkgver}-13_arm64.deb"
+  "https://deb.debian.org/debian/pool/main/a/android-platform-tools/android-libbase_${pkgver}-13_arm64.deb"
+  "https://deb.debian.org/debian/pool/main/a/android-platform-tools/android-libcutils_${pkgver}-13_arm64.deb"
+  "https://deb.debian.org/debian/pool/main/a/android-platform-tools/android-liblog_${pkgver}-13_arm64.deb"
+  'https://deb.debian.org/debian/pool/main/a/android-platform-external-boringssl/android-libboringssl_14.0.0+r45-3+b2_arm64.deb'
+  'https://deb.debian.org/debian/pool/main/p/protobuf/libprotobuf32t64_3.21.12-11+deb13u1_arm64.deb'
+)
+sha256sums=(
+  'SKIP'
+  'SKIP'
+  'SKIP'
+  '502357a4ba2beea0412dee705219dca855c705cbde4307a0d03efdeb2a2fbbca'
+  'eda3383b0948e9d83c05de2580b9e7abc91043f5a5eda720ac78613de91eff69'
+  'bc080151a31ae569634e64101fe8769c4e142a12dbdcc28f41e7c437fb2b6c36'
+  '891458f051560a51d2e3b0458b8437529d05b4f216ed4350b821dbbfcb86e4b1'
+  'd91e99628c49781f53277a5ba06ae3e6f7b1d5b1bb46661762bb7fd3ee7edf64'
+  '51bf38fcca667be0deef732a903563ee6ffa9bfc04433310c2c49e4c92d06b09'
+)
+
+_extract() {
+  local deb=$1 dest=$2
+  bsdtar -xOf "$deb" data.tar.xz | tar -xJf - -C "$dest"
+}
+
+prepare() {
+  rm -rf extract
+  mkdir -p extract
+  _extract "adbd_${pkgver}-13_arm64.deb" extract
+  _extract "android-libbase_${pkgver}-13_arm64.deb" extract
+  _extract "android-libcutils_${pkgver}-13_arm64.deb" extract
+  _extract "android-liblog_${pkgver}-13_arm64.deb" extract
+  _extract 'android-libboringssl_14.0.0+r45-3+b2_arm64.deb' extract
+  _extract 'libprotobuf32t64_3.21.12-11+deb13u1_arm64.deb' extract
+}
+
+package() {
+  install -Dm755 lapis-adbd-gadget "$pkgdir/usr/bin/lapis-adbd-gadget"
+  install -Dm755 lapis-adbd-run "$pkgdir/usr/bin/lapis-adbd-run"
+  install -Dm644 lapis-adbd.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-adbd.service"
+  install -d "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+  ln -s ../lapis-adbd.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-adbd.service"
+
+  install -Dm755 extract/usr/lib/android-sdk/platform-tools/adbd \
+    "$pkgdir/usr/bin/adbd"
+  install -d "$pkgdir/usr/lib/lapis-adbd"
+  local lib
+  for lib in \
+    extract/usr/lib/aarch64-linux-gnu/android/libbase.so.0 \
+    extract/usr/lib/aarch64-linux-gnu/android/libcutils.so.0 \
+    extract/usr/lib/aarch64-linux-gnu/android/liblog.so.0 \
+    extract/usr/lib/aarch64-linux-gnu/android/libcrypto.so.0 \
+    extract/usr/lib/aarch64-linux-gnu/android/libssl.so.0 \
+    extract/usr/lib/aarch64-linux-gnu/libprotobuf.so.32.0.12
+  do
+    install -m0644 "$lib" "$pkgdir/usr/lib/lapis-adbd/${lib##*/}"
+  done
+  ln -s libprotobuf.so.32.0.12 "$pkgdir/usr/lib/lapis-adbd/libprotobuf.so.32"
+}

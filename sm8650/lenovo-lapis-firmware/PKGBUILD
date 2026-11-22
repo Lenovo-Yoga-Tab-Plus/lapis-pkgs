@@ -1,0 +1,27 @@
+pkgname=lenovo-lapis-firmware
+pkgver=1.0
+pkgrel=1
+pkgdesc='Firmware staging helper for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('GPL-2.0-only')
+depends=('linux-firmware-qcom')
+source=('stage-lapis-firmware.sh' 'pil_squash.py')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -Dm755 stage-lapis-firmware.sh \
+    "$pkgdir/usr/lib/lapis/stage-lapis-firmware.sh"
+  install -Dm755 pil_squash.py \
+    "$pkgdir/usr/lib/lapis/pil_squash.py"
+
+  # Blobs stay out of this repo. Point LAPIS_FIRMWARE_ROOT at a directory
+  # laid out like a rootfs firmware tree (usr/lib/firmware/...) to pack them.
+  if [ -n "${LAPIS_FIRMWARE_ROOT:-}" ]; then
+    if [ ! -d "$LAPIS_FIRMWARE_ROOT" ]; then
+      echo "LAPIS_FIRMWARE_ROOT is not a directory: $LAPIS_FIRMWARE_ROOT" >&2
+      exit 1
+    fi
+    mkdir -p "$pkgdir/usr/lib/firmware"
+    cp -a "$LAPIS_FIRMWARE_ROOT/." "$pkgdir/usr/lib/firmware/"
+  fi
+}

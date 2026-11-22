@@ -1,0 +1,27 @@
+pkgname=qrtr
+pkgver=1.1
+pkgrel=1
+pkgdesc="Qualcomm IPC Router"
+arch=('aarch64')
+url="https://github.com/linux-msm/qrtr"
+license=('BSD')
+depends=('systemd')
+makedepends=('git' 'meson' 'ninja')
+provides=('qrtr-git')
+conflicts=('qrtr-git')
+source=("git+https://github.com/linux-msm/qrtr.git"
+        'qrtr-ns.service')
+md5sums=('SKIP' 'SKIP')
+
+build() {
+  cd "$srcdir/$pkgname"
+  meson setup build --prefix=/usr --sysconfdir=/etc
+  meson compile -C build
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  meson install -C build --destdir="$pkgdir"
+  install -Dm644 ../qrtr-ns.service \
+    "$pkgdir/usr/lib/systemd/system/qrtr-ns.service"
+}

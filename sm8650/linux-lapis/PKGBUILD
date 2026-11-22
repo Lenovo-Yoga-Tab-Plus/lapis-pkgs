@@ -1,0 +1,105 @@
+pkgbase=linux-lapis
+pkgname=(linux-lapis linux-lapis-headers)
+pkgver=7.3.0
+pkgrel=1
+pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
+arch=('aarch64')
+_carch=arm64
+url='https://github.com/Lenovo-Yoga-Tab-Plus/linux-lapis'
+license=('GPL-2.0-only')
+makedepends=(
+  'bc' 'bison' 'cpio' 'flex' 'git' 'kmod' 'pahole' 'python'
+  'rsync' 'tar' 'xz'
+)
+options=('!strip' '!debug')
+# Sibling checkout of this port. Override with KERNEL_SRC, or mount it at
+# /kernel inside the package builder container.
+_kernel_src="${KERNEL_SRC:-$startdir/../../../linux-tb520fu}"
+
+prepare() {
+  if [ ! -f "$_kernel_src/Makefile" ]; then
+    echo "Kernel tree not found at $_kernel_src" >&2
+    echo "Set KERNEL_SRC to the linux-tb520fu checkout." >&2
+    exit 1
+  fi
+  rm -rf "$srcdir/linux"
+  rsync -a \
+    --exclude .git \
+    --exclude '*.o' \
+    --exclude '*.ko' \
+    --exclude '*.mod' \
+    --exclude '*.mod.c' \
+    --exclude '.*.cmd' \
+    --exclude '.tmp_versions' \
+    "$_kernel_src/" "$srcdir/linux/"
+  cd "$srcdir/linux"
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} caihong_defconfig
+  ./scripts/config --file .config -d LOCALVERSION_AUTO
+  ./scripts/config --file .config --set-str LOCALVERSION "-lapis"
+  ./scripts/config --file .config -m CHARGER_LENOVO_TB520FU_PEN
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} olddefconfig
+}
+
+build() {
+  cd "$srcdir/linux"
+  unset LDFLAGS
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
+    KBUILD_BUILD_VERSION="${pkgrel}-lapis" \
+    -j"$(nproc)" Image Image.gz modules dtbs
+}
+
+package_linux-lapis() {
+  pkgdesc='The Linux kernel and modules for the Lenovo Yoga Tab Plus'
+  depends=('coreutils' 'kmod' 'lenovo-lapis-firmware')
+  provides=('linux')
+
+  cd "$srcdir/linux"
+  local kernver
+  kernver="$(make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
+    KBUILD_BUILD_VERSION="${pkgrel}-lapis" -s kernelrelease)"
+  local modulesdir="$pkgdir/usr/lib/modules/$kernver"
+
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
+    KBUILD_BUILD_VERSION="${pkgrel}-lapis" \
+    INSTALL_MOD_PATH="$pkgdir/usr" \
+    INSTALL_MOD_STRIP=1 \
+    modules_install
+
+  rm -f "$pkgdir"/usr/lib/modules/*/build "$pkgdir"/usr/lib/modules/*/source
+
+  mkdir -p "$pkgdir/boot/dtbs/qcom" "$modulesdir/devicetree"
+  install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/vmlinuz-$kernver"
+  install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/vmlinuz-$kernver.uncompressed"
+  install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/Image.gz"
+  install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/Image"
+  install -Dm644 System.map "$pkgdir/boot/System.map-$kernver"
+  install -Dm644 .config "$pkgdir/boot/config-$kernver"
+
+  local dtb
+  for dtb in sm8650-lenovo-tb520fu.dtb \
+             sm8650-lenovo-tb520fu-kms.dtb \
+             sm8650-lenovo-tb520fu-simplefb.dtb; do
+    if [ -f "arch/arm64/boot/dts/qcom/$dtb" ]; then
+      install -Dm644 "arch/arm64/boot/dts/qcom/$dtb" "$pkgdir/boot/dtbs/qcom/$dtb"
+      install -Dm644 "arch/arm64/boot/dts/qcom/$dtb" "$modulesdir/devicetree/$dtb"
+    fi
+  done
+  if [ -f "$modulesdir/devicetree/sm8650-lenovo-tb520fu-kms.dtb" ]; then
+    ln -s devicetree/sm8650-lenovo-tb520fu-kms.dtb "$modulesdir/dtb"
+  fi
+  cp arch/arm64/boot/Image.gz "$modulesdir/vmlinuz"
+  cp arch/arm64/boot/Image "$modulesdir/vmlinuz.uncompressed"
+
+  install -Dm644 include/config/kernel.release \
+    "$pkgdir/usr/share/kernel/lenovo-lapis/kernel.release"
+}
+
+package_linux-lapis-headers() {
+  pkgdesc='Header files and scripts for building modules for the TB520FU kernel'
+  provides=('linux-headers')
+
+  cd "$srcdir/linux"
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
+    KBUILD_BUILD_VERSION="${pkgrel}-lapis" \
+    INSTALL_HDR_PATH="$pkgdir/usr" headers_install
+}

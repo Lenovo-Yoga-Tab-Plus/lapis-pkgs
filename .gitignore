@@ -1,0 +1,12 @@
+repo/
+site/
+work/
+__pycache__/
+*.pyc
+*.log
+
+**/src/
+**/pkg/
+*.pkg.tar.*
+linux-*.tar.xz
+linux-*.tar.gz

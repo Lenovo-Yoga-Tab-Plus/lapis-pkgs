@@ -1,0 +1,21 @@
+pkgname=lapis-sound-conf
+pkgver=1.0
+pkgrel=3
+pkgdesc='Speaker, microphone, and topology configuration for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('MIT')
+depends=('alsa-ucm-conf-sm8650' 'alsa-utils' 'wireplumber' 'swh-plugins'
+         'python' 'gtk4' 'libadwaita')
+source=('lapis-audio.conf' 'lapis-speaker' 'lapis-speaker.desktop'
+        'Lenovo-TB520FU-tplg.bin')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm644 lapis-audio.conf \
+    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/lapis-audio.conf"
+  install -Dm755 lapis-speaker "$pkgdir/usr/bin/lapis-speaker"
+  install -Dm644 lapis-speaker.desktop \
+    "$pkgdir/usr/share/applications/lapis-speaker.desktop"
+  install -Dm644 Lenovo-TB520FU-tplg.bin \
+    "$pkgdir/usr/lib/firmware/qcom/sm8650/Lenovo-TB520FU-tplg.bin"
+}

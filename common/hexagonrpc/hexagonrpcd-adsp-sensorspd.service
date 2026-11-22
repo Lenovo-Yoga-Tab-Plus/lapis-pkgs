@@ -1,0 +1,13 @@
+[Unit]
+Description=FastRPC file server for the ADSP sensor process
+ConditionPathExists=/dev/fastrpc-adsp
+After=systemd-udev-trigger.service
+
+[Service]
+ExecStart=/usr/bin/hexagonrpcd -f /dev/fastrpc-adsp -d adsp -s -R /var/lib/lapis-ssc/root
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

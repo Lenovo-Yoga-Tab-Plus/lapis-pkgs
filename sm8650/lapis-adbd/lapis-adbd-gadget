@@ -1,0 +1,138 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Add FunctionFS ADB to the existing Lenovo NCM+ACM gadget (g1) without replacing it.
+set -Eeuo pipefail
+CDPATH=
+
+function_name=ffs.adb
+mount_point=/dev/usb-ffs/adb
+configfs=/sys/kernel/config
+gadget_dir=$configfs/usb_gadget/g1
+function_dir=$gadget_dir/functions/$function_name
+config_dir=$gadget_dir/configs/c.1
+ready_file=$function_dir/ready
+adbd_user=${ADBD_USER:-root}
+saved_udc_file=/run/lapis-adbd/udc
+
+adbd_uid=$(id -u "$adbd_user") || {
+	echo "unknown ADB runtime user: $adbd_user" >&2
+	exit 1
+}
+adbd_gid=$(id -g "$adbd_user")
+
+detect_serial()
+{
+	serial=
+	if [[ -r /proc/cmdline ]]; then
+		local cmdline
+		cmdline=$(</proc/cmdline)
+		if [[ $cmdline =~ (^|[[:space:]])androidboot.serialno=([^[:space:]]+) ]]; then
+			serial=${BASH_REMATCH[2]}
+		fi
+	fi
+	[[ -n $serial ]] || serial=HA25BC37
+	[[ $serial =~ ^[[:graph:]]{1,64}$ ]] || {
+		echo "invalid ADB serial number: $serial" >&2
+		return 1
+	}
+}
+
+ensure_configfs()
+{
+	if [[ ! -d $configfs/usb_gadget ]]; then
+		mkdir -p -- "$configfs"
+		mountpoint -q "$configfs" || mount -t configfs none "$configfs"
+	fi
+	[[ -d $gadget_dir ]] || {
+		echo "expected USB gadget $gadget_dir is missing" >&2
+		return 1
+	}
+}
+
+current_udc()
+{
+	local udc=
+	if [[ -e $gadget_dir/UDC ]]; then
+		udc=$(<"$gadget_dir/UDC")
+	fi
+	if [[ -z $udc ]]; then
+		udc=$(find /sys/class/udc -mindepth 1 -maxdepth 1 -printf '%f\n' | head -n 1)
+	fi
+	printf '%s\n' "$udc"
+}
+
+unbind_udc()
+{
+	mkdir -p /run/lapis-adbd
+	local current
+	current=$(current_udc)
+	if [[ -n $current ]]; then
+		printf '%s\n' "$current" >"$saved_udc_file"
+	fi
+	if [[ -e $gadget_dir/UDC ]]; then
+		printf '\n' >"$gadget_dir/UDC" 2>/dev/null || true
+	fi
+}
+
+rebind_udc()
+{
+	local udc=
+	if [[ -s $saved_udc_file ]]; then
+		udc=$(<"$saved_udc_file")
+	fi
+	[[ -n $udc ]] || udc=$(current_udc)
+	[[ -n $udc ]] || {
+		echo "no USB device controller is available" >&2
+		return 1
+	}
+	printf '%s\n' "$udc" >"$gadget_dir/UDC"
+}
+
+configure()
+{
+	ensure_configfs
+	unbind_udc
+	detect_serial
+	mkdir -p -- "$function_dir" "$mount_point"
+	printf '%s\n' "$serial" >"$gadget_dir/strings/0x409/serialnumber"
+	if [[ ! -e $config_dir/$function_name ]]; then
+		# configfs rewrites this to the long ../../../../usb_gadget/... form.
+		(cd -- "$config_dir" && ln -s -- "../../functions/$function_name" "$function_name")
+	fi
+	if ! mountpoint -q "$mount_point"; then
+		mount -t functionfs adb "$mount_point" -o "uid=$adbd_uid,gid=$adbd_gid"
+	fi
+}
+
+bind()
+{
+	local attempts=0
+	until [[ -e $ready_file && $(<"$ready_file") == 1 ]]; do
+		((++attempts < 100)) || {
+			echo "adbd did not initialize FunctionFS" >&2
+			return 1
+		}
+		sleep 0.1
+	done
+	rebind_udc
+}
+
+teardown()
+{
+	unbind_udc 2>/dev/null || true
+	rm -f -- "$config_dir/$function_name"
+	umount "$mount_point" 2>/dev/null || true
+	rmdir "$function_dir" 2>/dev/null || true
+	rmdir "$mount_point" 2>/dev/null || true
+	rebind_udc 2>/dev/null || true
+}
+
+case ${1:-} in
+	setup) configure ;;
+	bind) bind ;;
+	teardown) teardown ;;
+	*)
+		echo "usage: $0 {setup|bind|teardown}" >&2
+		exit 2
+		;;
+esac

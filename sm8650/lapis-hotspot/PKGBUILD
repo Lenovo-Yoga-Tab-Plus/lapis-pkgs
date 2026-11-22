@@ -1,0 +1,26 @@
+pkgname=lapis-hotspot
+pkgver=1.0
+pkgrel=1
+pkgdesc='Concurrent Wi-Fi hotspot for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('GPL-2.0-only')
+depends=('bash' 'hostapd' 'dnsmasq' 'iw' 'iproute2' 'networkmanager' 'nftables')
+source=(
+  'lapis-hotspot'
+  'lapis-hotspot.conf'
+  'lapis-hotspot.service'
+  '80-lapis-hotspot.rules'
+  '99-lapis-hotspot.conf'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 lapis-hotspot "$pkgdir/usr/bin/lapis-hotspot"
+  install -Dm644 lapis-hotspot.conf "$pkgdir/etc/lapis-hotspot.conf"
+  install -Dm644 lapis-hotspot.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-hotspot.service"
+  install -Dm644 80-lapis-hotspot.rules \
+    "$pkgdir/usr/lib/udev/rules.d/80-lapis-hotspot.rules"
+  install -Dm644 99-lapis-hotspot.conf \
+    "$pkgdir/usr/lib/NetworkManager/conf.d/99-lapis-hotspot.conf"
+}

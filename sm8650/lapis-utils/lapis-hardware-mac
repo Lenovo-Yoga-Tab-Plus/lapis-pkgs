@@ -1,0 +1,224 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Apply factory WLAN + Bluetooth MACs from the persist partition.
+set -euo pipefail
+
+readonly persist_mount=/mnt/persist
+readonly bt_addr_file=/etc/bluetooth/bdaddr
+readonly state_dir=/var/lib/lapis-hardware-mac
+
+valid_mac()
+{
+	local address=${1,,}
+	[[ $address =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]] &&
+		[[ $address != 00:00:00:00:00:00 ]] &&
+		(( (16#${address:0:2} & 1) == 0 ))
+}
+
+format_mac_bytes()
+{
+	local hex=${1,,}
+	hex=${hex//:/}
+	[[ $hex =~ ^[[:xdigit:]]{12}$ ]] || return 1
+	printf '%s:%s:%s:%s:%s:%s\n' \
+		"${hex:0:2}" "${hex:2:2}" "${hex:4:2}" \
+		"${hex:6:2}" "${hex:8:2}" "${hex:10:2}"
+}
+
+read_wlan_mac()
+{
+	local file path value
+	for path in \
+		"$persist_mount/kiwi_v2/wlan_mac.bin" \
+		"$persist_mount/kiwi_v2/mac.bin"; do
+		[[ -r $path ]] || continue
+		value=$(tr -d '\0' <"$path" | tr -d '\n')
+		if [[ $value =~ Intf0MacAddress=([[:xdigit:]]{12}) ]]; then
+			format_mac_bytes "${BASH_REMATCH[1]}" && return 0
+		fi
+		if [[ $value =~ Intf0MacAddress=([[:xdigit:]]{2}:){5}[[:xdigit:]]{2} ]]; then
+			format_mac_bytes "${BASH_REMATCH[0]#Intf0MacAddress=}" && return 0
+		fi
+	done
+	return 1
+}
+
+read_bluetooth_mac()
+{
+	local path value
+	for path in \
+		"$persist_mount/bd_addr.bin" \
+		"$persist_mount/bluetooth/bd_addr.bin" \
+		"$bt_addr_file"; do
+		[[ -r $path ]] || continue
+		value=$(tr -d '\0\n\r ' <"$path")
+		value=${value,,}
+		if [[ $value =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]]; then
+			printf '%s\n' "$value"
+			return 0
+		fi
+		if [[ $value =~ ^[[:xdigit:]]{12}$ ]]; then
+			format_mac_bytes "$value" && return 0
+		fi
+	done
+	return 1
+}
+
+find_wifi_interface()
+{
+	local attempts=300 phy interface
+	while (( attempts > 0 )); do
+		for phy in /sys/class/net/*/phy80211; do
+			[[ -e $phy ]] || continue
+			interface=${phy%/phy80211}
+			printf '%s\n' "${interface##*/}"
+			return 0
+		done
+		sleep 0.1
+		((attempts--))
+	done
+	return 1
+}
+
+bluetooth_address()
+{
+	btmgmt --index hci0 info 2>/dev/null |
+		awk '/^[[:space:]]*addr / { print tolower($2); exit }'
+}
+
+wait_for_bluetooth_state()
+{
+	local attempts=300 address
+	while (( attempts > 0 )); do
+		address=$(bluetooth_address || true)
+		if valid_mac "$address"; then
+			printf '%s\n' "$address"
+			return 0
+		fi
+		if btmgmt config 2>/dev/null |
+			grep -q '^hci0:[[:space:]]*Unconfigured controller'; then
+			printf '%s\n' unconfigured
+			return 0
+		fi
+		sleep 0.1
+		((attempts--))
+	done
+	return 1
+}
+
+wait_for_bluetooth_address()
+{
+	local expected=${1,,} attempts=300 address
+	while (( attempts > 0 )); do
+		address=$(bluetooth_address || true)
+		if [[ ${address,,} == "$expected" ]]; then
+			printf '%s\n' "$address"
+			return 0
+		fi
+		sleep 0.1
+		((attempts--))
+	done
+	return 1
+}
+
+normalize_network_profiles()
+{
+	local wifi_interface=$1 wifi_address profile temporary
+	wifi_address=$(cat "/sys/class/net/$wifi_interface/address")
+	[[ $wifi_address =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]] || return 0
+	wifi_address=${wifi_address,,}
+
+	for profile in /etc/NetworkManager/system-connections/*.nmconnection; do
+		[[ -f $profile ]] || continue
+		temporary=$(mktemp --tmpdir=/etc/NetworkManager/system-connections \
+			'.lapis-network-profile.XXXXXX')
+		awk -v expected="$wifi_address" '
+			BEGIN { in_wifi = 0 }
+			$0 == "[wifi]" { in_wifi = 1; print; next }
+			in_wifi && /^\[/ { in_wifi = 0 }
+			in_wifi && /^mac-address=/ {
+				value = $0
+				sub(/^[^=]*=/, "", value)
+				if (tolower(value) != expected)
+					next
+			}
+			{ print }
+		' "$profile" >"$temporary"
+		if cmp -s "$profile" "$temporary"; then
+			rm -f "$temporary"
+			continue
+		fi
+		chown --reference="$profile" "$temporary"
+		chmod --reference="$profile" "$temporary"
+		mv -f "$temporary" "$profile"
+	done
+}
+
+apply_bluetooth_address()
+{
+	local bluetooth_mac=$1 current_bluetooth was_powered=0
+	printf '%s\n' "$bluetooth_mac" >"$bt_addr_file"
+	chmod 0644 "$bt_addr_file"
+
+	if ! current_bluetooth=$(wait_for_bluetooth_state); then
+		echo "Bluetooth controller did not become ready" >&2
+		return 1
+	fi
+	if [[ $current_bluetooth == unconfigured ]]; then
+		btmgmt --index hci0 public-addr "$bluetooth_mac" || return 1
+		wait_for_bluetooth_address "$bluetooth_mac" >/dev/null || return 1
+	elif [[ ${current_bluetooth,,} != "${bluetooth_mac,,}" ]]; then
+		if btmgmt --index hci0 info | grep -q 'current settings:.* powered'; then
+			was_powered=1
+		fi
+		btmgmt --index hci0 power off || return 1
+		btmgmt --index hci0 public-addr "$bluetooth_mac" || return 1
+		wait_for_bluetooth_address "$bluetooth_mac" >/dev/null || return 1
+		if (( was_powered )); then
+			btmgmt --index hci0 power on || return 1
+		fi
+	fi
+	echo "Bluetooth hci0: $bluetooth_mac"
+}
+
+mkdir -p "$state_dir"
+
+if ! wlan_mac=$(read_wlan_mac); then
+	echo "factory WLAN MAC unavailable under $persist_mount" >&2
+	exit 1
+fi
+if ! bluetooth_mac=$(read_bluetooth_mac); then
+	echo "factory Bluetooth MAC unavailable under $persist_mount" >&2
+	exit 1
+fi
+valid_mac "$wlan_mac" || { echo "invalid WLAN MAC: $wlan_mac" >&2; exit 1; }
+valid_mac "$bluetooth_mac" || { echo "invalid Bluetooth MAC: $bluetooth_mac" >&2; exit 1; }
+if [[ $wlan_mac == "$bluetooth_mac" ]]; then
+	echo "WLAN and Bluetooth addresses must differ" >&2
+	exit 1
+fi
+
+if ! wifi_interface=$(find_wifi_interface); then
+	echo "no WLAN interface found" >&2
+	exit 1
+fi
+
+current_wlan=$(cat "/sys/class/net/$wifi_interface/address")
+if [[ ${current_wlan,,} != "${wlan_mac,,}" ]]; then
+	was_up=0
+	if ip link show dev "$wifi_interface" | grep -q '<[^>]*UP[,>]'; then
+		was_up=1
+		ip link set dev "$wifi_interface" down
+	fi
+	ip link set dev "$wifi_interface" address "$wlan_mac"
+	if (( was_up )); then
+		ip link set dev "$wifi_interface" up
+	fi
+fi
+
+normalize_network_profiles "$wifi_interface"
+apply_bluetooth_address "$bluetooth_mac"
+
+printf 'WLAN_MAC=%s\nBLUETOOTH_MAC=%s\n' "$wlan_mac" "$bluetooth_mac" \
+	>"$state_dir/addresses"
+echo "WLAN $wifi_interface: $wlan_mac"

@@ -1,0 +1,59 @@
+pkgname=lapis-configs
+pkgver=1.1
+pkgrel=3
+pkgdesc='Network, camera, logind, and session configuration for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('MIT' 'CC0-1.0')
+depends=('glib2')
+install=lapis-configs.install
+source=(
+  'lapis.conf'
+  'lapis-camera.conf'
+  'logind.conf'
+  '10-usb0.network'
+  '20-wlan.network'
+  '10-wlan.link'
+  '70-lapis-camera.rules'
+  '72-lapis-pogo.rules'
+  'gc13a0.yaml'
+  'machine-info'
+  '99-lapis-sensors.gschema.override'
+  'lenovo-yoga-tab-plus.tablet'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm644 lapis.conf \
+    "$pkgdir/usr/lib/modules-load.d/lapis.conf"
+  install -Dm644 lapis-camera.conf \
+    "$pkgdir/usr/lib/modules-load.d/lapis-camera.conf"
+  install -Dm644 logind.conf \
+    "$pkgdir/usr/lib/systemd/logind.conf.d/lapis.conf"
+  install -Dm644 10-usb0.network \
+    "$pkgdir/usr/lib/systemd/network/10-usb0.network"
+  install -Dm644 20-wlan.network \
+    "$pkgdir/usr/lib/systemd/network/20-wlan.network"
+  install -Dm644 10-wlan.link \
+    "$pkgdir/usr/lib/systemd/network/10-wlan.link"
+  install -Dm644 70-lapis-camera.rules \
+    "$pkgdir/usr/lib/udev/rules.d/70-lapis-camera.rules"
+  install -Dm644 72-lapis-pogo.rules \
+    "$pkgdir/usr/lib/udev/rules.d/72-lapis-pogo.rules"
+  install -Dm644 gc13a0.yaml \
+    "$pkgdir/usr/share/libcamera/ipa/simple/gc13a0.yaml"
+  install -Dm644 gc13a0.yaml \
+    "$pkgdir/usr/share/libcamera/ipa/simple/gc13a2.yaml"
+  install -Dm644 machine-info "$pkgdir/etc/machine-info"
+  install -Dm644 99-lapis-sensors.gschema.override \
+    "$pkgdir/usr/share/glib-2.0/schemas/99-lapis-sensors.gschema.override"
+  install -Dm644 lenovo-yoga-tab-plus.tablet \
+    "$pkgdir/usr/share/libwacom/lenovo-yoga-tab-plus.tablet"
+
+  install -d "$pkgdir/etc/systemd/system/getty.target.wants"
+  ln -s /usr/lib/systemd/system/serial-getty@.service \
+    "$pkgdir/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service"
+  local target
+  for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
+    ln -s /dev/null "$pkgdir/etc/systemd/system/${target}.target"
+  done
+}

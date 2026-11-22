@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Publish SW_TABLET_MODE so the panel follows the accelerometer.
+
+Mutter only auto-rotates a builtin panel while the seat is in touch mode.
+With no tablet-mode switch, any pointer (the Bluetooth pen enumerates as a
+mouse) forces touch mode off, so PanelOrientationManaged stays false and the
+working accelerometer is ignored.
+
+The folio Hall line is SW_LID on gpio-keys. While that switch is open this
+holds tablet mode on. A closed folio clears it. A connected pogo keyboard
+clears it too: libinput suspends an internal keyboard for the whole time
+tablet mode is on, so the keys never arrive. If gpio-keys is missing and no
+keyboard is attached, tablet mode stays on.
+
+The keyboard cover's own lid is TLMM gpio 200, active low. logind ignores
+SW_LID, so a closed cover blanks the GNOME screen from here and an open
+cover wakes it. Suspend stays unused: the keyboard wake line is not armed,
+and a suspend here would leave the tablet asleep until the power key.
+"""
+
+import array
+import ctypes
+import fcntl
+import glob
+import os
+import select
+import struct
+import subprocess
+
+EV_SYN = 0x00
+EV_SW = 0x05
+SW_LID = 0x00
+SW_TABLET_MODE = 0x01
+BUS_VIRTUAL = 0x06
+# EVIOCGSW(sizeof(unsigned long)) on aarch64.
+EVIOCGSW = (2 << 30) | (8 << 16) | (ord("E") << 8) | 0x1B
+
+libc = ctypes.CDLL(None, use_errno=True)
+
+
+def _iow(nr, size):
+    return (1 << 30) | (size << 16) | (ord("U") << 8) | nr
+
+
+def _io(nr):
+    return (ord("U") << 8) | nr
+
+
+UI_SET_EVBIT = _iow(100, 4)
+UI_SET_SWBIT = _iow(109, 4)
+UI_DEV_SETUP = _iow(3, 92)
+UI_DEV_CREATE = _io(1)
+
+
+def ioctl_int(fd, req, arg):
+    r = libc.ioctl(fd, req, arg)
+    if r < 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+
+
+def ioctl_buf(fd, req, data):
+    buf = ctypes.create_string_buffer(data)
+    r = libc.ioctl(fd, req, buf)
+    if r < 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+
+
+def find_gpio_keys():
+    for name_path in glob.glob("/sys/class/input/event*/device/name"):
+        try:
+            with open(name_path, encoding="ascii") as fh:
+                name = fh.read().strip()
+        except OSError:
+            continue
+        if name == "gpio-keys":
+            event = name_path.split("/")[4]
+            return os.open(f"/dev/input/{event}", os.O_RDONLY | os.O_NONBLOCK)
+    return None
+
+
+def lid_closed(fd):
+    sw = array.array("Q", [0])
+    fcntl.ioctl(fd, EVIOCGSW, sw)
+    return bool(sw[0] & (1 << SW_LID))
+
+
+def keyboard_present():
+    for name_path in glob.glob("/sys/class/input/event*/device/name"):
+        try:
+            with open(name_path, encoding="ascii") as fh:
+                name = fh.read().strip()
+        except OSError:
+            continue
+        if name == "Lenovo TB520FU Keyboard":
+            return True
+    return False
+
+
+def want_tablet(keys):
+    if keyboard_present():
+        return False
+    if keys is None:
+        return True
+    return not lid_closed(keys)
+
+
+def emit(ufd, tablet_on):
+    value = 1 if tablet_on else 0
+    os.write(ufd, struct.pack("qqHHi", 0, 0, EV_SW, SW_TABLET_MODE, value))
+    os.write(ufd, struct.pack("qqHHi", 0, 0, EV_SYN, 0, 0))
+    print(f"tablet-mode {'on' if tablet_on else 'off'}", flush=True)
+
+
+def find_tlmm():
+    try:
+        import gpiod
+    except ImportError:
+        return None
+    for path in sorted(glob.glob("/dev/gpiochip*")):
+        chip = gpiod.Chip(path)
+        try:
+            if chip.get_info().num_lines >= 200:
+                return path
+        finally:
+            chip.close()
+    return None
+
+
+class KeyboardLid:
+    """gpio 200 is the pogo cover lid. Low means the cover is shut."""
+
+    def __init__(self):
+        self._req = None
+        path = find_tlmm()
+        if path is None:
+            print("keyboard lid gpio unavailable", flush=True)
+            return
+        try:
+            import gpiod
+            from gpiod.line import Bias, Direction
+
+            self._req = gpiod.request_lines(
+                path,
+                consumer="lapis-keyboard-lid",
+                config={
+                    200: gpiod.LineSettings(
+                        direction=Direction.INPUT,
+                        bias=Bias.PULL_UP,
+                    )
+                },
+            )
+        except (OSError, ImportError) as err:
+            print(f"keyboard lid gpio unavailable: {err}", flush=True)
+            self._req = None
+
+    def closed(self):
+        if self._req is None:
+            return False
+        try:
+            import gpiod
+
+            return self._req.get_value(200) == gpiod.line.Value.INACTIVE
+        except OSError:
+            return False
+
+
+def cover_closed(keys, keyboard_lid):
+    folio = keys is not None and lid_closed(keys)
+    return folio or keyboard_lid.closed()
+
+
+def set_screen_blank(blank):
+    flag = "true" if blank else "false"
+    cmd = (
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
+        "gdbus call --session --dest org.gnome.ScreenSaver "
+        "--object-path /org/gnome/ScreenSaver "
+        f"--method org.gnome.ScreenSaver.SetActive {flag}"
+    )
+    subprocess.run(["su", "alarm", "-c", cmd], check=False)
+    print(f"screen {'off' if blank else 'on'}", flush=True)
+
+
+def main():
+    ufd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+    ioctl_int(ufd, UI_SET_EVBIT, EV_SW)
+    ioctl_int(ufd, UI_SET_SWBIT, SW_TABLET_MODE)
+    setup = struct.pack(
+        "<HHHH80sI",
+        BUS_VIRTUAL,
+        0x17EF,
+        0x520F,
+        1,
+        b"Yoga Tab Plus Tablet Mode",
+        0,
+    )
+    ioctl_buf(ufd, UI_DEV_SETUP, setup)
+    ioctl_int(ufd, UI_DEV_CREATE, 0)
+
+    keys = find_gpio_keys()
+    keyboard_lid = KeyboardLid()
+    tablet = want_tablet(keys)
+    # libinput only resumes a keyboard it already suspended when it sees
+    # the switch go from on to off. The new switch starts at off, so pulse
+    # it when the cover should leave tablet mode.
+    if not tablet:
+        emit(ufd, True)
+        select.select([], [], [], 0.8)
+    emit(ufd, tablet)
+    blank = cover_closed(keys, keyboard_lid)
+    if blank:
+        set_screen_blank(True)
+
+    watch = [keys] if keys is not None else []
+    while True:
+        ready, _, _ = select.select(watch, [], [], 0.2)
+        if keys is not None and keys in ready:
+            while True:
+                try:
+                    os.read(keys, 24)
+                except BlockingIOError:
+                    break
+        want = want_tablet(keys)
+        if want != tablet:
+            tablet = want
+            emit(ufd, tablet)
+        closed = cover_closed(keys, keyboard_lid)
+        if closed != blank:
+            blank = closed
+            set_screen_blank(blank)
+
+
+if __name__ == "__main__":
+    main()

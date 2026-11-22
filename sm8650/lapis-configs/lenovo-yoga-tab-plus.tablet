@@ -1,0 +1,16 @@
+# Lenovo Yoga Tab Plus (TB520FU) stylus.
+# The kernel reports this digitizer as i2c 0001:0006 so libwacom can
+# tell it from the SPI touchscreen. IntegratedIn=System maps it to the
+# built-in panel, which is what rotates the pen with the display.
+[Device]
+Name=Lenovo Yoga Tab Plus Pen
+ModelName=
+DeviceMatch=i2c|0001|0006
+Class=ISDV4
+Width=274
+Height=171
+IntegratedIn=Display;System
+
+[Features]
+Stylus=true
+Touch=false

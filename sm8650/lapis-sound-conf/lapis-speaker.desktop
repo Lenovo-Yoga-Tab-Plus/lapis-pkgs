@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Speaker profiles
+Comment=Android speaker tuning for the Yoga Tab Plus
+Exec=lapis-speaker
+Icon=audio-speakers
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Settings;
+StartupNotify=true

@@ -1,0 +1,10 @@
+[Unit]
+Description=QRTR name service
+Before=iio-sensor-proxy.service hexagonrpcd-adsp-sensorspd.service
+
+[Service]
+ExecStart=/usr/bin/qrtr-ns -f 1
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

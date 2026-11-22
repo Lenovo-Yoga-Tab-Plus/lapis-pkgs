@@ -1,0 +1,67 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -Eeuo pipefail
+
+export LD_LIBRARY_PATH=/usr/lib/lapis-adbd${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+adbd_pid=
+
+stop_adbd()
+{
+	if [[ -n ${adbd_pid:-} ]] && kill -0 "$adbd_pid" 2>/dev/null; then
+		kill "$adbd_pid"
+		wait "$adbd_pid" || true
+	fi
+}
+
+has_usb_worker()
+{
+	local task
+	for task in "/proc/$adbd_pid/task/"*/comm; do
+		[[ -e $task ]] || continue
+		[[ $(<"$task") == UsbFfs-worker ]] && return 0
+	done
+	return 1
+}
+
+has_configured_udc()
+{
+	local state
+	for state in /sys/class/udc/*/state; do
+		[[ -r $state ]] || continue
+		[[ $(<"$state") == configured ]] && return 0
+	done
+	return 1
+}
+
+trap stop_adbd EXIT INT TERM
+/usr/bin/adbd &
+adbd_pid=$!
+
+# Notify systemd once FunctionFS is ready for bind.
+if [[ -n ${NOTIFY_SOCKET:-} ]]; then
+	for _ in $(seq 1 100); do
+		if [[ -e /sys/kernel/config/usb_gadget/g1/functions/ffs.adb/ready ]] &&
+			[[ $(</sys/kernel/config/usb_gadget/g1/functions/ffs.adb/ready) == 1 ]]; then
+			systemd-notify --ready || true
+			break
+		fi
+		sleep 0.1
+	done
+fi
+
+misses=0
+while kill -0 "$adbd_pid" 2>/dev/null; do
+	if has_usb_worker; then
+		misses=0
+	elif has_configured_udc; then
+		((++misses < 25)) || {
+			echo "adbd lost its FunctionFS USB worker" >&2
+			exit 1
+		}
+	else
+		misses=0
+	fi
+	sleep 0.2
+done
+
+wait "$adbd_pid"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Factory persist partition (MACs, calibration)
+Before=lapis-hardware-mac.service
+
+[Mount]
+What=/dev/disk/by-partlabel/persist
+Where=/mnt/persist
+Type=ext4
+Options=ro,noatime,nosuid,nodev
+
+[Install]
+WantedBy=local-fs.target

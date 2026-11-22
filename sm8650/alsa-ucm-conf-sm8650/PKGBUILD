@@ -1,0 +1,22 @@
+pkgname=alsa-ucm-conf-sm8650
+pkgver=1.0
+pkgrel=1
+pkgdesc='ALSA Use Case Manager configuration for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('MIT')
+depends=('alsa-ucm-conf')
+source=('Lenovo-TB520FU.conf' 'HiFi.conf')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -Dm644 Lenovo-TB520FU.conf \
+    "$pkgdir/usr/share/alsa/ucm2/Lenovo/TB520FU/Lenovo-TB520FU.conf"
+  install -Dm644 HiFi.conf \
+    "$pkgdir/usr/share/alsa/ucm2/Lenovo/TB520FU/HiFi.conf"
+  mkdir -p "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8650"
+  ln -s ../../Lenovo/TB520FU/Lenovo-TB520FU.conf \
+    "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8650/Lenovo-TB520FU.conf"
+  # Silicium reports board name "lapis". ALSA looks that name up beside the card.
+  ln -s Lenovo-TB520FU.conf \
+    "$pkgdir/usr/share/alsa/ucm2/conf.d/sm8650/Lenovo-YogaTabPlus-TB520FU-lapis.conf"
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=TB520FU concurrent Wi-Fi hotspot
+Wants=NetworkManager.service NetworkManager-wait-online.service
+After=NetworkManager.service NetworkManager-wait-online.service lapis-hardware-mac.service
+Conflicts=sleep.target
+Before=sleep.target
+ConditionPathExists=/usr/bin/lapis-hotspot
+ConditionPathExists=/usr/bin/hostapd
+ConditionPathExists=/usr/bin/dnsmasq
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/lapis-hotspot start
+ExecStop=/usr/bin/lapis-hotspot stop
+ExecReload=/usr/bin/lapis-hotspot restart
+TimeoutStartSec=55
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,58 @@
+pkgname=lapis-utils
+pkgver=1.0
+pkgrel=1
+pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, and stable auto-brightness tools for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('GPL-2.0-only')
+depends=('qbootctl' 'python' 'iproute2' 'bluez-utils')
+source=(
+  'lapis-hardware-mac'
+  'lapis-slot'
+  'lapis-charge'
+  'lapis-flashlight'
+  'lapis-tablet-mode'
+  'lapis-flash.conf'
+  'mnt-persist.mount'
+  'lapis-hardware-mac.service'
+  'lapis-charge.service'
+  'lapis-tablet-mode.service'
+  'lapis-light-filter.c'
+  'lapis-light-filter.conf'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+build() {
+  gcc -shared -fPIC -O2 -Wall -Wextra -o lapis-light-filter.so lapis-light-filter.c -ldl
+}
+
+package() {
+  install -Dm755 lapis-hardware-mac "$pkgdir/usr/bin/lapis-hardware-mac"
+  install -Dm755 lapis-slot "$pkgdir/usr/bin/lapis-slot"
+  install -Dm755 lapis-charge "$pkgdir/usr/bin/lapis-charge"
+  install -Dm755 lapis-flashlight "$pkgdir/usr/bin/lapis-flashlight"
+  install -Dm755 lapis-tablet-mode "$pkgdir/usr/bin/lapis-tablet-mode"
+  install -Dm644 lapis-flash.conf \
+    "$pkgdir/usr/lib/modules-load.d/lapis-flash.conf"
+  install -Dm644 mnt-persist.mount \
+    "$pkgdir/usr/lib/systemd/system/mnt-persist.mount"
+  install -Dm644 lapis-hardware-mac.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-hardware-mac.service"
+  install -Dm644 lapis-charge.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-charge.service"
+  install -Dm644 lapis-tablet-mode.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-tablet-mode.service"
+  install -Dm644 lapis-light-filter.conf \
+    "$pkgdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/lapis-light-filter.conf"
+  install -Dm755 lapis-light-filter.so \
+    "$pkgdir/usr/lib/lapis/liblapis-light-filter.so"
+  install -d "$pkgdir/usr/lib/systemd/system/local-fs.target.wants" \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+  ln -s ../mnt-persist.mount \
+    "$pkgdir/usr/lib/systemd/system/local-fs.target.wants/mnt-persist.mount"
+  ln -s ../lapis-hardware-mac.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-hardware-mac.service"
+  ln -s ../lapis-charge.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-charge.service"
+  ln -s ../lapis-tablet-mode.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-tablet-mode.service"
+}

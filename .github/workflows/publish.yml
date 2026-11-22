@@ -1,0 +1,140 @@
+name: Build & publish package repos
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  pacman:
+    name: Build pacman packages
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          set -euo pipefail
+          {
+            printf '%s\0' \
+              Dockerfile \
+              config/packages.local.txt \
+              config/packages.upstream.txt \
+              config/repo.env \
+              scripts/build-local-packages.sh \
+              scripts/compose-repo.sh \
+              scripts/fetch-upstream.py
+            find common sm8650 -type f \
+              ! -path '*/src/*' \
+              ! -path '*/pkg/*' \
+              -print0
+          } | sort -z | xargs -0 sha256sum | sha256sum \
+            | awk '{print "hash="$1}' >> "$GITHUB_OUTPUT"
+
+      - name: Restore build cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            repo/repo/.build-cache
+            repo/repo/*.pkg.tar.zst
+            repo/repo/*.pkg.tar.xz
+          key: pacman-${{ runner.arch }}-${{ github.ref_name }}-${{ steps.cache-key.outputs.hash }}
+          restore-keys: pacman-${{ runner.arch }}-${{ github.ref_name }}-
+
+      - name: Build builder image
+        run: docker build -t lapis-pkgs-builder .
+
+      - name: Build local packages
+        run: |
+          mkdir -p repo/repo/.build-cache
+          docker run --rm \
+            -e LOCAL_BUILDER_ROOT=/work \
+            -e KERNEL_SRC=/kernel \
+            -v "$PWD/repo:/repo" \
+            -v "$PWD/config:/config" \
+            -v "$PWD/common:/work/common" \
+            -v "$PWD/sm8650:/work/sm8650" \
+            -v "$PWD/../linux-tb520fu:/kernel" \
+            lapis-pkgs-builder /usr/local/bin/build-local-packages.sh
+
+      - name: Fix ownership
+        run: sudo chown -R "$USER:$USER" .
+
+      - name: Save build cache
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            repo/repo/.build-cache
+            repo/repo/*.pkg.tar.zst
+            repo/repo/*.pkg.tar.xz
+          key: ${{ steps.cache-restore.outputs.cache-primary-key }}
+
+      - name: Mirror upstream packages
+        run: python scripts/fetch-upstream.py
+
+      - name: Compose repo database
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            lapis-pkgs-builder scripts/compose-repo.sh
+          sudo chown -R "$USER:$USER" repo
+
+      - name: Upload pacman repo
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacman-repo
+          path: repo/repo/
+          retention-days: 1
+
+  deploy:
+    name: Deploy to Pages
+    needs: [pacman]
+    runs-on: ubuntu-24.04-arm
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            config/
+            scripts/
+
+      - name: Download pacman repo
+        uses: actions/download-artifact@v4
+        with:
+          name: pacman-repo
+          path: repo/repo/
+
+      - uses: actions/configure-pages@v5
+
+      - name: Stage Pages content
+        run: scripts/stage-pages.sh
+
+      - name: Delete stale Pages artifact
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: github-pages
+          failOnError: false
+
+      - name: Upload Pages artifact
+        id: pages-artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5
