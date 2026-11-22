@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -37,6 +37,9 @@ prepare() {
   ./scripts/config --file .config -d LOCALVERSION_AUTO
   ./scripts/config --file .config --set-str LOCALVERSION "-lapis"
   ./scripts/config --file .config -m CHARGER_LENOVO_TB520FU_PEN
+  # The bring-up initramfs is a separate tree. This package boots the root
+  # named on the kernel command line.
+  ./scripts/config --file .config --set-str INITRAMFS_SOURCE ""
   make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} olddefconfig
 }
 

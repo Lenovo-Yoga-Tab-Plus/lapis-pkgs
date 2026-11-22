@@ -1,6 +1,6 @@
 pkgname=lapis-configs
 pkgver=1.1
-pkgrel=3
+pkgrel=4
 pkgdesc='Network, camera, logind, and session configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT' 'CC0-1.0')
