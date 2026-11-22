@@ -42,6 +42,7 @@ cat > "$SITE_DIR/index.html" <<EOF
 <body>
   <h1>$REPO_NAME</h1>
   <p>Package repository for the Lenovo Yoga Tab Plus (TB520FU).</p>
+  <p>Project site: <a href="https://lenovo-yoga-tab-plus.github.io/lapis/">https://lenovo-yoga-tab-plus.github.io/lapis/</a></p>
   <h2>Arch Linux (pacman)</h2>
   <p>Repo URL: <a href="$PAGES_BASE_URL/repo/">$PAGES_BASE_URL/repo/</a></p>
   <h2>Ultramarine / Fedora (dnf)</h2>
