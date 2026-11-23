@@ -3,8 +3,11 @@
 # Gunyah placeholder at /proc/device-tree/hypervisor as a virtual machine
 # and caches that result for the whole boot. The kernel still needs the
 # node. Hide it from userspace, then ask pid 1 to read it again.
-# The Processor row stays empty unless /proc/cpuinfo has a model name.
-# arm64 does not emit one.
+# Do not mount anything on top of a /proc file. A file mount under /proc
+# makes the kernel refuse a new procfs from a user namespace, and then
+# Flatpak cannot start (Extension Manager, Software). The processor name
+# is printed by the kernel instead. The hypervisor node is a directory,
+# and covering it with an empty directory still leaves proc mountable.
 
 set -eu
 
@@ -14,16 +17,8 @@ if ! mountpoint -q /proc/device-tree/hypervisor; then
 	mount --bind /run/lapis/empty-hypervisor /proc/device-tree/hypervisor
 fi
 
-if ! mountpoint -q /proc/cpuinfo; then
-	awk '
-		/^processor[[:space:]]*:/ {
-			print
-			print "model name\t: Snapdragon 8 Gen 3"
-			next
-		}
-		{ print }
-	' /proc/cpuinfo > /run/lapis/cpuinfo
-	mount --bind /run/lapis/cpuinfo /proc/cpuinfo
+if mountpoint -q /proc/cpuinfo; then
+	umount /proc/cpuinfo
 fi
 
 virt=$(busctl get-property org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager Virtualization 2>/dev/null || true)
