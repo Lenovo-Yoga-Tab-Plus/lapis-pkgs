@@ -53,7 +53,8 @@ package() {
   ln -s /usr/lib/systemd/system/serial-getty@.service \
     "$pkgdir/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service"
   local target
-  for target in sleep suspend hibernate hybrid-sleep suspend-then-hibernate; do
+  # Hibernate needs a swap area this tablet does not have. Suspend stays available.
+  for target in hibernate hybrid-sleep suspend-then-hibernate; do
     ln -s /dev/null "$pkgdir/etc/systemd/system/${target}.target"
   done
 }
