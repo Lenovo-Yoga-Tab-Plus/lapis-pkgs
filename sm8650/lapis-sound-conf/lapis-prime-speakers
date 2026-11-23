@@ -1,0 +1,24 @@
+#!/bin/sh
+# The six speaker amplifiers clip the first very short sound after they
+# power up. Open the path with silence during login so that pop happens
+# before anything the user hears. Later sounds reuse the path for the
+# 20 seconds set in lapis-audio.conf.
+
+if ! command -v pw-cat >/dev/null 2>&1; then
+	exit 0
+fi
+
+i=0
+while [ "$i" -lt 20 ]; do
+	if pw-cli ls Node 2>/dev/null | grep -q 'HiFi__Speaker__sink'; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 0.3
+done
+
+# 1 second of silence, read at the playback rate so the amplifiers
+# actually come up. A pipe of a short buffer returns before the
+# hardware has started.
+timeout 1 pw-cat --playback --format s16 --rate 48000 --channels 2 --raw /dev/zero \
+	>/dev/null 2>&1 || true

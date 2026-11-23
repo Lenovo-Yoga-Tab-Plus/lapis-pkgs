@@ -144,7 +144,7 @@ normalize_network_profiles()
 			}
 			{ print }
 		' "$profile" >"$temporary"
-		if cmp -s "$profile" "$temporary"; then
+		if [[ $(<"$profile") == "$(<"$temporary")" ]]; then
 			rm -f "$temporary"
 			continue
 		fi

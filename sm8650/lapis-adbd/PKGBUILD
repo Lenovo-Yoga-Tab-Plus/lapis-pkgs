@@ -1,11 +1,10 @@
 pkgname=lapis-adbd
 pkgver=34.0.5
-pkgrel=1
+pkgrel=2
 pkgdesc='ADB gadget on the Lenovo Yoga Tab Plus USB NCM interface'
 arch=('aarch64')
 license=('Apache-2.0' 'BSD-3-Clause')
 depends=('bash')
-makedepends=('curl')
 source=(
   'lapis-adbd-gadget'
   'lapis-adbd-run'
@@ -50,9 +49,6 @@ package() {
   install -Dm755 lapis-adbd-run "$pkgdir/usr/bin/lapis-adbd-run"
   install -Dm644 lapis-adbd.service \
     "$pkgdir/usr/lib/systemd/system/lapis-adbd.service"
-  install -d "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
-  ln -s ../lapis-adbd.service \
-    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-adbd.service"
 
   install -Dm755 extract/usr/lib/android-sdk/platform-tools/adbd \
     "$pkgdir/usr/bin/adbd"

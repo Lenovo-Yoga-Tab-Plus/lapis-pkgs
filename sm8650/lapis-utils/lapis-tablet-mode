@@ -117,14 +117,29 @@ def find_tlmm():
     try:
         import gpiod
     except ImportError:
+        gpiod = None
+    if gpiod is not None:
+        for path in sorted(glob.glob("/dev/gpiochip*")):
+            chip = gpiod.Chip(path)
+            try:
+                if chip.get_info().num_lines >= 200:
+                    return path
+            finally:
+                chip.close()
+    try:
+        out = subprocess.check_output(["gpiodetect"], text=True)
+    except (OSError, subprocess.CalledProcessError):
         return None
-    for path in sorted(glob.glob("/dev/gpiochip*")):
-        chip = gpiod.Chip(path)
+    for line in out.splitlines():
+        # gpiochip8 [f100000.pinctrl] (211 lines)
+        if "(" not in line or "lines)" not in line:
+            continue
         try:
-            if chip.get_info().num_lines >= 200:
-                return path
-        finally:
-            chip.close()
+            count = int(line.rsplit("(", 1)[1].split()[0])
+        except (IndexError, ValueError):
+            continue
+        if count >= 200:
+            return line.split()[0]
     return None
 
 
@@ -133,9 +148,14 @@ class KeyboardLid:
 
     def __init__(self):
         self._req = None
+        self._chip = None
         path = find_tlmm()
         if path is None:
             print("keyboard lid gpio unavailable", flush=True)
+            return
+        if not path.startswith("/dev/"):
+            self._chip = path
+            print(f"keyboard lid on {path} via gpioget", flush=True)
             return
         try:
             import gpiod
@@ -156,6 +176,18 @@ class KeyboardLid:
             self._req = None
 
     def closed(self):
+        if self._chip is not None:
+            try:
+                out = subprocess.check_output(
+                    [
+                        "gpioget", "-c", self._chip, "--numeric",
+                        "--bias", "pull-up", "200",
+                    ],
+                    text=True,
+                )
+            except (OSError, subprocess.CalledProcessError):
+                return False
+            return out.strip() == "0"
         if self._req is None:
             return False
         try:
@@ -171,15 +203,43 @@ def cover_closed(keys, keyboard_lid):
     return folio or keyboard_lid.closed()
 
 
+def session_user():
+    """The graphical login. There is no alarm user on this image."""
+    try:
+        out = subprocess.check_output(
+            ["loginctl", "list-sessions", "--no-legend"],
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or not parts[1].isdigit():
+            continue
+        if parts[2] in ("root", "gdm", "sddm", "lightdm"):
+            continue
+        return parts[2], parts[1]
+    return None
+
+
 def set_screen_blank(blank):
+    session = session_user()
+    if session is None:
+        print("screen blank skipped, no session", flush=True)
+        return
+    user, uid = session
     flag = "true" if blank else "false"
-    cmd = (
-        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
-        "gdbus call --session --dest org.gnome.ScreenSaver "
-        "--object-path /org/gnome/ScreenSaver "
-        f"--method org.gnome.ScreenSaver.SetActive {flag}"
+    subprocess.run(
+        [
+            "runuser", "-u", user, "--",
+            "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+            "gdbus", "call", "--session",
+            "--dest", "org.gnome.ScreenSaver",
+            "--object-path", "/org/gnome/ScreenSaver",
+            "--method", "org.gnome.ScreenSaver.SetActive", flag,
+        ],
+        check=False,
     )
-    subprocess.run(["su", "alarm", "-c", cmd], check=False)
     print(f"screen {'off' if blank else 'on'}", flush=True)
 
 

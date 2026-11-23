@@ -1,10 +1,10 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=2
+pkgrel=5
 pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
-depends=('qbootctl' 'python' 'python-gobject' 'iproute2' 'bluez-utils')
+depends=('qbootctl' 'python' 'python-gobject' 'libgpiod' 'iproute2' 'bluez-utils')
 source=(
   'lapis-hardware-mac'
   'lapis-slot'

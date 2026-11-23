@@ -1,0 +1,9 @@
+#!/bin/sh
+src=/usr/lib/gnome-control-center-print-renderer
+wrapper=/usr/lib/lapis/print-renderer
+[ -e "$src" ] || exit 0
+if grep -q 'Qualcomm Adreno 750' "$src" 2>/dev/null; then
+	exit 0
+fi
+mv "$src" "$src.real"
+install -m755 "$wrapper" "$src"

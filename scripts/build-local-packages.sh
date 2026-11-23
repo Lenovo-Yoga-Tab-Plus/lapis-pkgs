@@ -122,6 +122,18 @@ for pkg in "${PKGS[@]}"; do
     if [ "$pkg" = "linux-lapis" ] && [ -d "${KERNEL_SRC:-}/.git" ]; then
         pkg_source_hash="$(printf '%s %s\n' "$pkg_source_hash" "$(git -C "$KERNEL_SRC" rev-parse HEAD)" | sha256sum | awk '{print $1}')"
     fi
+    # lenovo-lapis-firmware copies LAPIS_FIRMWARE_ROOT, which lives outside
+    # the package directory. A new blob has to miss this cache.
+    if [ "$pkg" = "lenovo-lapis-firmware" ] && [ -n "${LAPIS_FIRMWARE_ROOT:-}" ] && [ -d "$LAPIS_FIRMWARE_ROOT" ]; then
+        firmware_hash="$(
+            find "$LAPIS_FIRMWARE_ROOT" -type f -print0 |
+                sort -z |
+                xargs -0 sha256sum |
+                sha256sum |
+                awk '{print $1}'
+        )"
+        pkg_source_hash="$(printf '%s %s\n' "$pkg_source_hash" "$firmware_hash" | sha256sum | awk '{print $1}')"
+    fi
     built_packages=()
 
     if [ -f "$cache_file" ]; then
@@ -231,7 +243,7 @@ for pkg in "${PKGS[@]}"; do
     done
 
     # Keep the builder container lean: do not install the kernel package there,
-    # and skip the meta package because it depends on linux-pipa being installed.
+    # and skip the meta package because it depends on linux-lapis being installed.
     case "$pkg" in
         linux-lapis|lapis-metapkg)
             ;;

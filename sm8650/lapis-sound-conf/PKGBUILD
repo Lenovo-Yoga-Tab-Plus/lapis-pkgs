@@ -1,14 +1,15 @@
 pkgname=lapis-sound-conf
 pkgver=1.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Speaker, microphone, and topology configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT')
 depends=('alsa-ucm-conf-sm8650' 'alsa-utils' 'wireplumber' 'swh-plugins'
          'python' 'gtk4' 'libadwaita')
 source=('lapis-audio.conf' 'lapis-speaker' 'lapis-speaker.desktop'
-        'Lenovo-TB520FU-tplg.bin')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'Lenovo-TB520FU-tplg.bin' 'lapis-prime-speakers'
+        'lapis-prime-speakers.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm644 lapis-audio.conf \
@@ -18,4 +19,11 @@ package() {
     "$pkgdir/usr/share/applications/lapis-speaker.desktop"
   install -Dm644 Lenovo-TB520FU-tplg.bin \
     "$pkgdir/usr/lib/firmware/qcom/sm8650/Lenovo-TB520FU-tplg.bin"
+  install -Dm755 lapis-prime-speakers \
+    "$pkgdir/usr/lib/lapis/prime-speakers"
+  install -Dm644 lapis-prime-speakers.service \
+    "$pkgdir/usr/lib/systemd/user/lapis-prime-speakers.service"
+  install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
+  ln -s ../lapis-prime-speakers.service \
+    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/lapis-prime-speakers.service"
 }

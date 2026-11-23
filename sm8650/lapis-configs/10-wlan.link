@@ -5,4 +5,3 @@ Type=wlan
 NamePolicy=keep kernel database onboard slot path
 AlternativeNamesPolicy=database onboard slot path
 MACAddressPolicy=none
-MACAddress=02:17:ef:52:0f:03

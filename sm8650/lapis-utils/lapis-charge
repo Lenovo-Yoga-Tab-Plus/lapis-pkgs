@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
 
 BATTERY = Path("/sys/class/power_supply/qcom-battmgr-bat")
@@ -42,8 +43,14 @@ def validate(config):
         raise ValueError("config must contain integer start and end")
     if type(config["start"]) is not int or type(config["end"]) is not int:
         raise ValueError("thresholds must be integers")
-    if not 0 <= config["start"] < config["end"] <= 100:
-        raise ValueError("need 0 <= start < end <= 100")
+    # qcom-battmgr clamps and still returns success. Reject the values it
+    # would silently change. This board uses that stock path.
+    if not 50 <= config["start"] <= 95:
+        raise ValueError("start must be 50..95")
+    if not 55 <= config["end"] <= 100:
+        raise ValueError("end must be 55..100")
+    if config["start"] >= config["end"]:
+        raise ValueError("start must be below end")
     return config
 
 
@@ -51,8 +58,18 @@ def write(name, value):
     (BATTERY / name).write_text(str(value) + "\n")
 
 
+def wait_for_battery(timeout=30):
+    node = BATTERY / "charge_control_end_threshold"
+    deadline = time.monotonic() + timeout
+    while not node.exists():
+        if time.monotonic() >= deadline:
+            raise RuntimeError("charge_control thresholds are unavailable")
+        time.sleep(1)
+
+
 def apply(config):
     validate(config)
+    wait_for_battery()
     start = number("charge_control_start_threshold")
     end = number("charge_control_end_threshold")
     if start is None or end is None:

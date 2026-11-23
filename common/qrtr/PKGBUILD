@@ -1,6 +1,6 @@
 pkgname=qrtr
 pkgver=1.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Qualcomm IPC Router"
 arch=('aarch64')
 url="https://github.com/linux-msm/qrtr"
@@ -9,13 +9,16 @@ depends=('systemd')
 makedepends=('git' 'meson' 'ninja')
 provides=('qrtr-git')
 conflicts=('qrtr-git')
-source=("git+https://github.com/linux-msm/qrtr.git"
+# v1.1 still builds qrtr-ns. Later revisions dropped the name server.
+_commit=8f9b2bc3b60f59ecc9e6193764fa885cdef7f0ce
+source=("git+https://github.com/linux-msm/qrtr.git#commit=${_commit}"
         'qrtr-ns.service')
 md5sums=('SKIP' 'SKIP')
 
 build() {
   cd "$srcdir/$pkgname"
-  meson setup build --prefix=/usr --sysconfdir=/etc
+  meson setup build --prefix=/usr --sysconfdir=/etc \
+    -Dqrtr-ns=enabled -Dsystemd-service=disabled
   meson compile -C build
 }
 

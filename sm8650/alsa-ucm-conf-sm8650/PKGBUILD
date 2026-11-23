@@ -1,6 +1,6 @@
 pkgname=alsa-ucm-conf-sm8650
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='ALSA Use Case Manager configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT')

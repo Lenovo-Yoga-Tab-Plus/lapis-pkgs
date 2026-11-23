@@ -71,7 +71,36 @@ def restore():
     print(f"restored system clock from stamp ({best})")
 
 
-def write_rtcinfo(now, raw):
+def rtcinfo_unix_offset():
+    """Offset already stored in RTCInfo, or 0 when the variable is absent.
+
+    since_epoch includes this offset after the PMIC driver applies it, so the
+    raw counter is since_epoch minus the stored offset.
+    """
+    try:
+        with open(EFIVAR, "rb") as handle:
+            stored = handle.read()
+    except OSError:
+        return 0
+    if len(stored) < 8:
+        return 0
+    offset_gps = struct.unpack_from("<I", stored, 4)[0]
+    return (offset_gps + GPS_EPOCH) & 0xFFFFFFFF
+
+
+def ntp_synchronized():
+    try:
+        out = subprocess.check_output(
+            ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return out.strip() == "yes"
+
+
+def write_rtcinfo(now, since_epoch):
+    raw = (since_epoch - rtcinfo_unix_offset()) & 0xFFFFFFFF
     offset = (now - raw) & 0xFFFFFFFF
     offset_gps = (offset - GPS_EPOCH) & 0xFFFFFFFF
     blob = struct.pack("<I", ATTRS) + struct.pack("<I", offset_gps) + bytes(8)
@@ -103,6 +132,9 @@ def save():
     os.makedirs(os.path.dirname(STAMP), exist_ok=True)
     with open(STAMP, "a"):
         os.utime(STAMP, None)
+    if not ntp_synchronized():
+        print("clock is not NTP-synchronized, leaving RTCInfo alone")
+        return
     raw = rtc_epoch()
     if raw is not None:
         try:

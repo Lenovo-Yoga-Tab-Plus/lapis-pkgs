@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -71,9 +71,9 @@ package_linux-lapis() {
   rm -f "$pkgdir"/usr/lib/modules/*/build "$pkgdir"/usr/lib/modules/*/source
 
   mkdir -p "$pkgdir/boot/dtbs/qcom" "$modulesdir/devicetree"
+  # /boot/Image is what the image builder copies into the boot partition.
+  # vmlinuz-$kernver is the packaged compressed image.
   install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/vmlinuz-$kernver"
-  install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/vmlinuz-$kernver.uncompressed"
-  install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/Image.gz"
   install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/Image"
   install -Dm644 System.map "$pkgdir/boot/System.map-$kernver"
   install -Dm644 .config "$pkgdir/boot/config-$kernver"
@@ -91,7 +91,6 @@ package_linux-lapis() {
     ln -s devicetree/sm8650-lenovo-tb520fu-kms.dtb "$modulesdir/dtb"
   fi
   cp arch/arm64/boot/Image.gz "$modulesdir/vmlinuz"
-  cp arch/arm64/boot/Image "$modulesdir/vmlinuz.uncompressed"
 
   install -Dm644 include/config/kernel.release \
     "$pkgdir/usr/share/kernel/lenovo-lapis/kernel.release"
@@ -100,9 +99,41 @@ package_linux-lapis() {
 package_linux-lapis-headers() {
   pkgdesc='Header files and scripts for building modules for the TB520FU kernel'
   provides=('linux-headers')
+  depends=('pahole')
 
   cd "$srcdir/linux"
-  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
-    KBUILD_BUILD_VERSION="${pkgrel}-lapis" \
-    INSTALL_HDR_PATH="$pkgdir/usr" headers_install
+  local kernver builddir
+  kernver="$(make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} \
+    KBUILD_BUILD_VERSION="${pkgrel}-lapis" -s kernelrelease)"
+  builddir="$pkgdir/usr/lib/modules/$kernver/build"
+
+  install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map
+  install -Dt "$builddir/kernel" -m644 kernel/Makefile
+  install -Dt "$builddir/arch/${_carch}" -m644 "arch/${_carch}/Makefile"
+  cp -a scripts "$builddir/"
+  if [ -e tools/objtool/objtool ]; then
+    install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+  fi
+
+  cp -a include "$builddir/"
+  mkdir -p "$builddir/arch/${_carch}"
+  cp -a "arch/${_carch}/include" "$builddir/arch/${_carch}/"
+  if [ -f "arch/${_carch}/kernel/asm-offsets.h" ]; then
+    install -Dt "$builddir/arch/${_carch}/kernel" -m644 \
+      "arch/${_carch}/kernel/asm-offsets.h"
+  fi
+
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  local archdir
+  for archdir in "$builddir"/arch/*/; do
+    [ "$(basename "$archdir")" = "$_carch" ] && continue
+    rm -rf "$archdir"
+  done
+  rm -rf "$builddir/Documentation"
+  find -L "$builddir" -type l -delete
+  find "$builddir" -type f -name '*.o' -delete
+
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/linux"
 }

@@ -49,6 +49,9 @@ jobs:
               ! -path '*/src/*' \
               ! -path '*/pkg/*' \
               -print0
+            if [ -d firmware ]; then
+              find firmware -type f -print0
+            fi
           } | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/cache-inputs.txt"
           git -C kernel rev-parse HEAD >> "$RUNNER_TEMP/cache-inputs.txt"
           sha256sum "$RUNNER_TEMP/cache-inputs.txt" \

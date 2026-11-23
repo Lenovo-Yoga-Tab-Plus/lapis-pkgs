@@ -58,11 +58,9 @@ acquire_lock()
 	flock -n 9 || die "another hotspot operation is in progress"
 }
 
-find_upstream()
+find_wifi()
 {
-	if [[ -n $HOTSPOT_UPSTREAM ]]; then
-		[[ -e /sys/class/net/$HOTSPOT_UPSTREAM ]] ||
-			die "upstream interface does not exist: $HOTSPOT_UPSTREAM"
+	if [[ -n $HOTSPOT_UPSTREAM && -e /sys/class/net/$HOTSPOT_UPSTREAM/phy80211 ]]; then
 		printf '%s\n' "$HOTSPOT_UPSTREAM"
 		return
 	fi
@@ -80,7 +78,18 @@ find_upstream()
 			return
 		fi
 	done
-	die "no managed WLAN interface is available"
+	return 1
+}
+
+find_upstream()
+{
+	if [[ -n $HOTSPOT_UPSTREAM ]]; then
+		[[ -e /sys/class/net/$HOTSPOT_UPSTREAM ]] ||
+			die "upstream interface does not exist: $HOTSPOT_UPSTREAM"
+		printf '%s\n' "$HOTSPOT_UPSTREAM"
+		return
+	fi
+	find_wifi || die "no managed WLAN interface is available"
 }
 
 read_channel()
@@ -91,6 +100,17 @@ read_channel()
 	[[ $channel =~ ^[0-9]+$ ]] ||
 		die "STA interface $interface is not associated with a channel"
 	printf '%s\n' "$channel"
+}
+
+read_frequency()
+{
+	local interface=$1 frequency
+	# "channel 36 (5180 MHz)" — the number in parentheses is MHz.
+	frequency=$(iw dev "$interface" info 2>/dev/null |
+		awk '$1 == "channel" { gsub(/[^0-9]/, "", $3); print $3; exit }')
+	[[ $frequency =~ ^[0-9]+$ ]] ||
+		die "STA interface $interface has no frequency"
+	printf '%s\n' "$frequency"
 }
 
 set_regulatory_domain()
@@ -142,9 +162,9 @@ derive_ap_mac()
 {
 	local interface=$1 base b1 b2 b3 b4 b5 b6 first last
 	base=$(cat "/sys/class/net/$interface/address")
-	IFS=: read -r b1 b2 b3 b4 b5 b6 <<<"$base"
 	[[ $base =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]] ||
 		die "invalid STA MAC: $base"
+	IFS=: read -r b1 b2 b3 b4 b5 b6 <<<"$base"
 	# Set the locally-administered bit and change the final octet. This keeps
 	# the AP address derived from the hardware address without hard-coding it.
 	first=$((16#$b1 | 2))
@@ -202,7 +222,7 @@ pid_alive()
 write_hostapd_config()
 {
 	local hw_mode=g
-	if (( channel >= 30 )); then
+	if (( frequency >= 5000 )); then
 		hw_mode=a
 	fi
 	cat >"$hostapd_conf" <<EOF
@@ -222,9 +242,12 @@ wpa_passphrase=$HOTSPOT_PASSPHRASE
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 EOF
-	if (( channel >= 30 )); then
+	if (( frequency >= 5955 )); then
+		printf '%s\n' 'ieee80211ax=1' 'op_class=131' >>"$hostapd_conf"
+	elif (( frequency >= 5000 )); then
 		printf '%s\n' 'ieee80211ac=1' >>"$hostapd_conf"
 	fi
+	chmod 0600 "$hostapd_conf"
 }
 
 write_dnsmasq_config()
@@ -353,24 +376,27 @@ start_hotspot()
 
 	parent_interface=
 	channel=
+	frequency=
 	# NetworkManager may have created the managed interface before the STA
 	# association is complete.  Wait briefly for a real channel instead of
 	# failing the whole service and leaving the user to retry manually.
 	for _ in {1..40}; do
-		parent_interface=$(find_upstream 2>/dev/null || true)
+		parent_interface=$(find_wifi 2>/dev/null || true)
 		if [[ -n $parent_interface ]]; then
 			channel=$(read_channel "$parent_interface" 2>/dev/null || true)
-			if [[ $channel =~ ^[0-9]+$ ]]; then
+			frequency=$(read_frequency "$parent_interface" 2>/dev/null || true)
+			if [[ $channel =~ ^[0-9]+$ && $frequency =~ ^[0-9]+$ ]]; then
 				break
 			fi
 		fi
 		parent_interface=
 		channel=
+		frequency=
 		sleep 1
 	done
-	[[ -n $parent_interface && $channel =~ ^[0-9]+$ ]] ||
+	[[ -n $parent_interface && $channel =~ ^[0-9]+$ && $frequency =~ ^[0-9]+$ ]] ||
 		die "STA interface is not associated with a channel"
-	upstream_interface=$parent_interface
+	upstream_interface=$(find_upstream)
 	set_regulatory_domain
 	ap_mac=$(derive_ap_mac "$parent_interface")
 	hostapd_conf=$state_dir/hostapd.conf

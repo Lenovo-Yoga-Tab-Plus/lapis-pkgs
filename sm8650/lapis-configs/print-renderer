@@ -1,0 +1,7 @@
+#!/bin/bash
+# Mesa's freedreno driver reports the Adreno 750 as FD750. Settings
+# shows that string unchanged.
+real=/usr/lib/gnome-control-center-print-renderer.real
+[ -x "$real" ] || exit 0
+out=$("$real" "$@") || exit $?
+printf '%s' "${out//FD750/Qualcomm Adreno 750}"

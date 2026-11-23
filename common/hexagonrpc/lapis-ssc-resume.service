@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the ADSP sensor file server after resume
+Before=sleep.target
+PartOf=sleep.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/bin/systemctl --no-block start hexagonrpcd-adsp-sensorspd.service
+
+[Install]
+WantedBy=sleep.target

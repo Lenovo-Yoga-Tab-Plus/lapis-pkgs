@@ -1,7 +1,7 @@
 [Unit]
 Description=Save the clock into the PMIC offset and a boot stamp
-DefaultDependencies=no
 After=time-sync.target
+Conflicts=shutdown.target
 Before=shutdown.target
 
 [Service]

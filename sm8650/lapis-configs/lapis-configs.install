@@ -1,5 +1,8 @@
 post_install() {
   glib-compile-schemas /usr/share/glib-2.0/schemas
+  if [ -x /usr/lib/lapis/wrap-gpu-name ]; then
+    /usr/lib/lapis/wrap-gpu-name
+  fi
 }
 
 post_upgrade() {

@@ -1,0 +1,39 @@
+#!/bin/sh
+# The WCN7850 leaves its UART receiving, so firmware returns from
+# suspend immediately. Release the controller first. Binding it again
+# brings the chip up without the factory address, which is why
+# Bluetooth stays missing until that address is written back.
+
+driver=/sys/bus/serial/drivers/hci_uart_qca
+list=/run/lapis/bt-unbound
+
+case "$1" in
+pre)
+	mkdir -p /run/lapis
+	: > "$list"
+	for dev in "$driver"/*; do
+		[ -e "$dev" ] || continue
+		name=$(basename "$dev")
+		case "$name" in
+		bind|unbind|uevent|module) continue ;;
+		esac
+		printf '%s\n' "$name" >> "$list"
+		printf '%s\n' "$name" > "$driver/unbind"
+	done
+	;;
+post)
+	if [ -s "$list" ]; then
+		while read -r name; do
+			[ -n "$name" ] || continue
+			printf '%s\n' "$name" > "$driver/bind"
+		done < "$list"
+		rm -f "$list"
+	fi
+	if [ -x /usr/bin/lapis-hardware-mac ]; then
+		/usr/bin/lapis-hardware-mac
+	fi
+	if ! btmgmt --index hci0 info 2>/dev/null | grep -q 'current settings:.* powered'; then
+		btmgmt --index hci0 power on >/dev/null 2>&1 || true
+	fi
+	;;
+esac

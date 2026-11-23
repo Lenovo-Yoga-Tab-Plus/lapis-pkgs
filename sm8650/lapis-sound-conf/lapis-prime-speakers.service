@@ -1,0 +1,11 @@
+[Unit]
+Description=Open the speaker amplifiers before the first sound
+After=pipewire.service pipewire-pulse.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/lapis/prime-speakers
+
+[Install]
+WantedBy=graphical-session.target
