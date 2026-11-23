@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -36,6 +36,12 @@ prepare() {
   make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} caihong_defconfig
   ./scripts/config --file .config -d LOCALVERSION_AUTO
   ./scripts/config --file .config --set-str LOCALVERSION "-lapis"
+  # The panel has to come up in the kernel. A module leaves the firmware
+  # framebuffer on the glass until userspace loads it.
+  ./scripts/config --file .config -y DRM_MSM
+  ./scripts/config --file .config -m PCI_PWRCTRL_PWRSEQ
+  ./scripts/config --file .config -m KEYBOARD_LENOVO_TB520FU_POGO
+  ./scripts/config --file .config -m REGULATOR_WL2868C
   ./scripts/config --file .config -m CHARGER_LENOVO_TB520FU_PEN
   # The bring-up initramfs is a separate tree. This package boots the root
   # named on the kernel command line.

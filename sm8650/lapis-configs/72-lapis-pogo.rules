@@ -7,3 +7,9 @@ ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
 ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
   ATTRS{name}=="Lenovo TB520FU Touchpad", \
   TAG+="seat", TAG+="uaccess", ENV{ID_SEAT}="seat0"
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="Novatek NT36532E Touchscreen", \
+  TAG+="seat", TAG+="uaccess", ENV{ID_SEAT}="seat0"
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", \
+  ATTRS{name}=="Novatek NT36532E Pen", \
+  TAG+="seat", TAG+="uaccess", ENV{ID_SEAT}="seat0"
