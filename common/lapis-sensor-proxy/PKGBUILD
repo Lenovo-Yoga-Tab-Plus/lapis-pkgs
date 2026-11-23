@@ -1,0 +1,39 @@
+pkgname=lapis-sensor-proxy
+pkgver=3.9
+pkgrel=1
+pkgdesc='iio-sensor-proxy daemon for the TB520FU sensor core, starting sensors claimed during startup'
+arch=('aarch64')
+url='https://gitlab.freedesktop.org/hadess/iio-sensor-proxy'
+license=('GPL-3.0-only')
+# The stock package keeps the D-Bus policy, polkit action, udev rules,
+# unit, and monitor-sensor. This one only replaces the daemon it runs.
+depends=('iio-sensor-proxy' 'libssc' 'glib2' 'libgudev' 'polkit')
+makedepends=('meson' 'ninja' 'gcc' 'pkgconf' 'patch')
+source=("https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/${pkgver}/iio-sensor-proxy-${pkgver}.tar.gz"
+        'claim-before-open.patch'
+        'lapis-sensor-proxy.conf')
+sha256sums=('af5edd307dcfa52dc3a242d13b7cc756e90a71640caf332efbad960e21649ae4'
+            'SKIP'
+            'SKIP')
+
+prepare() {
+  cd "iio-sensor-proxy-${pkgver}"
+  patch -p1 < ../claim-before-open.patch
+}
+
+build() {
+  cd "iio-sensor-proxy-${pkgver}"
+  meson setup build --prefix=/usr --libexecdir=lib --buildtype=plain \
+    -Dssc-support=enabled \
+    -Dsystemdsystemunitdir=/usr/lib/systemd/system \
+    -Dudevrulesdir=/usr/lib/udev/rules.d
+  meson compile -C build
+}
+
+package() {
+  cd "iio-sensor-proxy-${pkgver}"
+  install -Dm755 build/src/iio-sensor-proxy \
+    "$pkgdir/usr/lib/lapis/iio-sensor-proxy"
+  install -Dm644 ../lapis-sensor-proxy.conf \
+    "$pkgdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/lapis-sensor-proxy.conf"
+}

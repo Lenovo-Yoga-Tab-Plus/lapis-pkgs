@@ -1,0 +1,38 @@
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -424,6 +424,7 @@
+ 	g_hash_table_remove (ht, sender);
+ 
+ 	if (driver_type_exists (data, driver_type) &&
++	    DEVICE_FOR_TYPE(driver_type) != NULL &&
+ 	    g_hash_table_size (ht) == 0) {
+ 		SensorDevice *sensor_device = DEVICE_FOR_TYPE(driver_type);
+ 		driver_set_polling (sensor_device, FALSE);
+@@ -522,7 +523,12 @@
+ 							   NULL);
+ 		g_hash_table_insert (ht, g_strdup (sender), GUINT_TO_POINTER (watch_id));
+ 
+-		if (driver_type_exists (data, driver_type)) {
++		/* The SSC drivers block in libssc calls that iterate the default
++		 * main context, so a Claim can arrive while the sensors are still
++		 * being discovered or opened. Record the client and let
++		 * name_acquired_handler() start the sensor once it is open. */
++		if (driver_type_exists (data, driver_type) &&
++		    DEVICE_FOR_TYPE(driver_type) != NULL) {
+ 			SensorDevice *sensor_device = DEVICE_FOR_TYPE(driver_type);
+ 
+ 			/* No other clients for this sensor? Start it */
+@@ -779,6 +785,13 @@
+ 		}
+ 
+ 		DEVICE_FOR_TYPE(i) = sensor_device;
++
++		/* Claimed before it was open: start it, and tell the clients
++		 * once the first reading arrives, like a hotplugged sensor. */
++		if (g_hash_table_size (data->clients[i]) > 0) {
++			data->sensor_startup_dbus_event_delayed[i] = TRUE;
++			driver_set_polling (sensor_device, TRUE);
++		}
+ 	}
+ 
+ 	if (!any_sensors_left (data))

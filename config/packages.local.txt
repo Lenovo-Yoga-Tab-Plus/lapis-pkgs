@@ -1,6 +1,7 @@
 qbootctl
 qrtr
 hexagonrpc
+lapis-sensor-proxy
 linux-lapis
 lenovo-lapis-firmware
 alsa-ucm-conf-sm8650
