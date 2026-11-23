@@ -1,0 +1,14 @@
+[Unit]
+Description=Save the clock into the PMIC offset and a boot stamp
+DefaultDependencies=no
+After=time-sync.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/lapis-clock save
+ExecStop=/usr/bin/lapis-clock save
+
+[Install]
+WantedBy=time-sync.target

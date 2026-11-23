@@ -1,0 +1,12 @@
+[Unit]
+Description=TB520FU auto-brightness from the Android lux curve
+After=iio-sensor-proxy.service
+Wants=iio-sensor-proxy.service
+
+[Service]
+ExecStart=/usr/bin/lapis-autobright
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

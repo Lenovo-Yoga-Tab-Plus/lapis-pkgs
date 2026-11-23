@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore the clock before other services start
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service
+Before=systemd-journald.service systemd-timesyncd.service time-sync.target sysinit.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lapis-clock restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

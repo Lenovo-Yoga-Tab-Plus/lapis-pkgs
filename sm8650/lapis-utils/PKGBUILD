@@ -1,10 +1,10 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=1
-pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, and stable auto-brightness tools for the Lenovo Yoga Tab Plus'
+pkgrel=2
+pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
-depends=('qbootctl' 'python' 'iproute2' 'bluez-utils')
+depends=('qbootctl' 'python' 'python-gobject' 'iproute2' 'bluez-utils')
 source=(
   'lapis-hardware-mac'
   'lapis-slot'
@@ -16,13 +16,19 @@ source=(
   'lapis-hardware-mac.service'
   'lapis-charge.service'
   'lapis-tablet-mode.service'
-  'lapis-light-filter.c'
-  'lapis-light-filter.conf'
+  'lapis-autobright'
+  'lapis-autobright.service'
+  'lapis-autobright-gnome.service'
+  'lapis-clock'
+  'lapis-clock-restore.service'
+  'lapis-clock-save.service'
+  'lapis-gsd-brightness.c'
+  'lapis-gsd-brightness.conf'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 build() {
-  gcc -shared -fPIC -O2 -Wall -Wextra -o lapis-light-filter.so lapis-light-filter.c -ldl
+  gcc -shared -fPIC -O2 -Wall -Wextra -o liblapis-gsd-brightness.so lapis-gsd-brightness.c -ldl
 }
 
 package() {
@@ -31,6 +37,8 @@ package() {
   install -Dm755 lapis-charge "$pkgdir/usr/bin/lapis-charge"
   install -Dm755 lapis-flashlight "$pkgdir/usr/bin/lapis-flashlight"
   install -Dm755 lapis-tablet-mode "$pkgdir/usr/bin/lapis-tablet-mode"
+  install -Dm755 lapis-autobright "$pkgdir/usr/bin/lapis-autobright"
+  install -Dm755 lapis-clock "$pkgdir/usr/bin/lapis-clock"
   install -Dm644 lapis-flash.conf \
     "$pkgdir/usr/lib/modules-load.d/lapis-flash.conf"
   install -Dm644 mnt-persist.mount \
@@ -41,12 +49,23 @@ package() {
     "$pkgdir/usr/lib/systemd/system/lapis-charge.service"
   install -Dm644 lapis-tablet-mode.service \
     "$pkgdir/usr/lib/systemd/system/lapis-tablet-mode.service"
-  install -Dm644 lapis-light-filter.conf \
-    "$pkgdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/lapis-light-filter.conf"
-  install -Dm755 lapis-light-filter.so \
-    "$pkgdir/usr/lib/lapis/liblapis-light-filter.so"
+  install -Dm644 lapis-autobright.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-autobright.service"
+  install -Dm644 lapis-autobright-gnome.service \
+    "$pkgdir/usr/lib/systemd/user/lapis-autobright-gnome.service"
+  install -Dm644 lapis-clock-restore.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-clock-restore.service"
+  install -Dm644 lapis-clock-save.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-clock-save.service"
+  install -Dm755 liblapis-gsd-brightness.so \
+    "$pkgdir/usr/lib/lapis/liblapis-gsd-brightness.so"
+  install -Dm644 lapis-gsd-brightness.conf \
+    "$pkgdir/usr/lib/systemd/user/org.gnome.SettingsDaemon.Power.service.d/lapis-brightness.conf"
   install -d "$pkgdir/usr/lib/systemd/system/local-fs.target.wants" \
-    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants" \
+    "$pkgdir/usr/lib/systemd/system/sysinit.target.wants" \
+    "$pkgdir/usr/lib/systemd/system/time-sync.target.wants" \
+    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
   ln -s ../mnt-persist.mount \
     "$pkgdir/usr/lib/systemd/system/local-fs.target.wants/mnt-persist.mount"
   ln -s ../lapis-hardware-mac.service \
@@ -55,4 +74,12 @@ package() {
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-charge.service"
   ln -s ../lapis-tablet-mode.service \
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-tablet-mode.service"
+  ln -s ../lapis-autobright.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-autobright.service"
+  ln -s ../lapis-clock-restore.service \
+    "$pkgdir/usr/lib/systemd/system/sysinit.target.wants/lapis-clock-restore.service"
+  ln -s ../lapis-clock-save.service \
+    "$pkgdir/usr/lib/systemd/system/time-sync.target.wants/lapis-clock-save.service"
+  ln -s ../lapis-autobright-gnome.service \
+    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/lapis-autobright-gnome.service"
 }

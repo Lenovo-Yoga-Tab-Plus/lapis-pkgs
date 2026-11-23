@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""Auto-brightness for the Yoga Tab Plus, using the Android tables.
+
+Lux comes from the Lapis framework overlay (product slot):
+  config_autoBrightnessLevels
+  config_autoBrightnessDisplayValuesNits
+A monotone spline, the same kind AutomaticBrightnessController builds, turns
+lux into nits. The vendor display config then turns nits into the 0..1
+backlight fraction with its linear screenBrightnessMap. Changes wait the
+overlay's 2000 ms brighten and darken debounce, then move at the vendor ramp
+(0.04 per second, never longer than 3 seconds).
+
+GNOME's ambient switch stays off so its relative curve does not fight this
+one. A slider move is kept as an offset from the Android curve.
+"""
+
+import math
+import os
+import pwd
+import signal
+import subprocess
+import time
+
+from gi.repository import Gio, GLib
+
+BACKLIGHT = "/sys/class/backlight/ktz8866-backlight"
+OFFSET_PATH = "/var/lib/lapis/autobright-offset"
+SENSOR = "net.hadess.SensorProxy"
+SENSOR_PATH = "/net/hadess/SensorProxy"
+
+# Lux points are 0 plus config_autoBrightnessLevels. Nits are
+# config_autoBrightnessDisplayValuesNits. Above 5000 lux the curve holds
+# at 650 nits; high-brightness mode is a separate 10000 lux path.
+LUX = [0, 5, 15, 40, 100, 180, 400, 550, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
+NITS = [8, 8, 30, 70, 100, 120, 150, 180, 210, 270, 340, 420, 480, 550, 650]
+
+# display_id_4630947039571902851.xml screenBrightnessMap, linear.
+PANEL = [
+    (0.0000, 0.2289), (0.0195, 4.4509), (0.0392, 6.8769), (0.0587, 11.6512),
+    (0.0784, 18.5109), (0.0980, 27.5286), (0.1176, 38.3354), (0.1372, 49.5442),
+    (0.1568, 64.2686), (0.1764, 81.6825), (0.1961, 99.8549), (0.2156, 117.9603),
+    (0.2353, 132.6605), (0.2548, 153.7292), (0.2744, 177.8811), (0.2941, 203.9206),
+    (0.3136, 232.8468), (0.3333, 265.5024), (0.3528, 300.7833), (0.3725, 339.1603),
+    (0.3921, 379.3092), (0.4117, 422.9130), (0.4313, 467.6717), (0.4509, 515.9362),
+    (0.4705, 567.4022), (0.4902, 621.2638), (0.5097, 652.9980), (0.5294, 657.4003),
+    (0.5490, 663.0907), (0.5686, 666.9472), (0.5882, 672.5456), (0.6077, 677.9654),
+    (0.6274, 682.5966), (0.6471, 687.7337), (0.6666, 691.9226), (0.6862, 697.3131),
+    (0.7058, 701.3130), (0.7254, 707.0514), (0.7451, 712.5063), (0.7646, 718.2969),
+    (0.7843, 723.9837), (0.8038, 728.3262), (0.8235, 734.2028), (0.8431, 739.4332),
+    (0.8627, 744.2439), (0.8823, 750.5568), (0.9018, 755.1467), (0.9215, 760.6885),
+    (0.9412, 766.5874), (0.9607, 770.8062), (0.9803, 776.6059), (1.0000, 782.4283),
+]
+
+DEBOUNCE_S = 2.0
+SLOW_PER_S = 0.04
+FAST_PER_S = 0.06
+RAMP_MAX_S = 3.0
+TICK_MS = 50
+FILTER_S = 0.8
+
+
+def monotone_slopes(xs, ys):
+    slopes = [(ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]) for i in range(len(xs) - 1)]
+    tangents = [0.0] * len(xs)
+    tangents[0] = slopes[0]
+    tangents[-1] = slopes[-1]
+    for i in range(1, len(xs) - 1):
+        if slopes[i - 1] * slopes[i] <= 0:
+            tangents[i] = 0.0
+        else:
+            tangents[i] = (slopes[i - 1] + slopes[i]) / 2
+    for i, slope in enumerate(slopes):
+        if slope == 0:
+            tangents[i] = 0.0
+            tangents[i + 1] = 0.0
+            continue
+        a = tangents[i] / slope
+        b = tangents[i + 1] / slope
+        norm = a * a + b * b
+        if norm > 9:
+            scale = 3 / math.sqrt(norm)
+            tangents[i] = scale * a * slope
+            tangents[i + 1] = scale * b * slope
+    return tangents
+
+
+TANGENTS = monotone_slopes(LUX, NITS)
+
+
+def spline(x, xs, ys, tangents):
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[-1]:
+        return ys[-1]
+    hi = 1
+    while xs[hi] < x:
+        hi += 1
+    lo = hi - 1
+    span = xs[hi] - xs[lo]
+    t = (x - xs[lo]) / span
+    t2 = t * t
+    t3 = t2 * t
+    return (
+        (2 * t3 - 3 * t2 + 1) * ys[lo]
+        + (t3 - 2 * t2 + t) * span * tangents[lo]
+        + (-2 * t3 + 3 * t2) * ys[hi]
+        + (t3 - t2) * span * tangents[hi]
+    )
+
+
+def lux_to_nits(lux):
+    return spline(lux, LUX, NITS, TANGENTS)
+
+
+def nits_to_fraction(nits):
+    if nits <= PANEL[0][1]:
+        return PANEL[0][0]
+    if nits >= PANEL[-1][1]:
+        return PANEL[-1][0]
+    for index in range(1, len(PANEL)):
+        lo_frac, lo_nits = PANEL[index - 1]
+        hi_frac, hi_nits = PANEL[index]
+        if nits <= hi_nits:
+            t = (nits - lo_nits) / (hi_nits - lo_nits)
+            return lo_frac + t * (hi_frac - lo_frac)
+    return PANEL[-1][0]
+
+
+def clamp(value):
+    return min(1.0, max(0.0, value))
+
+
+class AutoBright:
+    def __init__(self):
+        self.max_brightness = int(open(f"{BACKLIGHT}/max_brightness").read())
+        self.offset = self.load_offset()
+        self.filtered = None
+        self.anchor = None
+        self.pending_since = None
+        self.current = self.read_fraction()
+        self.target = self.current
+        self.rate = SLOW_PER_S
+        self.last_written = self.read_pwm()
+        self.last_tick = time.monotonic()
+        self.armed_at = self.last_tick + 1.0
+        self.slider_ready = False
+        self.next_setting_check = 0.0
+        self.proxy = None
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        self.proxy = Gio.DBusProxy.new_sync(
+            bus, Gio.DBusProxyFlags.NONE, None,
+            SENSOR, SENSOR_PATH, SENSOR, None)
+        self.proxy.call_sync("ClaimLight", None, Gio.DBusCallFlags.NONE, 5000, None)
+        print("claimed the light sensor", flush=True)
+
+    def load_offset(self):
+        try:
+            with open(OFFSET_PATH) as handle:
+                return float(handle.read().strip())
+        except (OSError, ValueError):
+            return 0.0
+
+    def save_offset(self):
+        os.makedirs(os.path.dirname(OFFSET_PATH), exist_ok=True)
+        tmp = OFFSET_PATH + ".tmp"
+        with open(tmp, "w") as handle:
+            handle.write(f"{self.offset:.6f}\n")
+        os.replace(tmp, OFFSET_PATH)
+
+    def read_pwm(self):
+        with open(f"{BACKLIGHT}/brightness") as handle:
+            return int(handle.read().strip())
+
+    def read_fraction(self):
+        return self.read_pwm() / self.max_brightness
+
+    def write_pwm(self, pwm):
+        pwm = min(self.max_brightness, max(0, int(pwm)))
+        if pwm == self.last_written:
+            return
+        with open(f"{BACKLIGHT}/brightness", "w") as handle:
+            handle.write(f"{pwm}\n")
+        self.last_written = pwm
+
+    def curve_fraction(self, lux):
+        return nits_to_fraction(lux_to_nits(lux))
+
+    def gsettings(self, uid, *args):
+        bus = f"/run/user/{uid}/bus"
+        entry = pwd.getpwuid(int(uid))
+        result = subprocess.run(
+            ["setpriv", "--reuid", str(uid), "--regid", str(entry.pw_gid), "--init-groups",
+             "env", f"HOME={entry.pw_dir}", f"USER={entry.pw_name}", f"LOGNAME={entry.pw_name}",
+             f"XDG_RUNTIME_DIR=/run/user/{uid}",
+             f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
+             "gsettings", *args],
+            capture_output=True, text=True, timeout=2)
+        return result
+
+    def keep_gnome_ambient_off(self):
+        """GNOME's switch runs its own curve. Leave that switch off."""
+        now = time.monotonic()
+        if now < self.next_setting_check:
+            return
+        self.next_setting_check = now + 15.0
+        try:
+            users = [name for name in os.listdir("/run/user") if name.isdigit() and int(name) >= 1000]
+        except OSError:
+            return
+        for uid in users:
+            if not os.path.exists(f"/run/user/{uid}/bus"):
+                continue
+            try:
+                current = self.gsettings(uid, "get", "org.gnome.settings-daemon.plugins.power", "ambient-enabled")
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if current.returncode == 0 and current.stdout.strip() == "true":
+                self.gsettings(uid, "set", "org.gnome.settings-daemon.plugins.power", "ambient-enabled", "false")
+
+    def note_user_slider(self, lux):
+        actual = self.read_pwm()
+        if abs(actual - self.last_written) <= 1:
+            return
+        fraction = actual / self.max_brightness
+        self.offset = fraction - self.curve_fraction(lux)
+        self.current = fraction
+        self.target = clamp(self.curve_fraction(lux) + self.offset)
+        self.last_written = actual
+        self.rate = FAST_PER_S
+        self.save_offset()
+        print(f"slider offset {self.offset:+.3f}", flush=True)
+
+    def update_anchor(self, lux, now):
+        if self.filtered is None:
+            self.filtered = lux
+            self.anchor = lux
+            return True
+        dt = min(1.0, max(0.0, now - self.last_tick))
+        alpha = 1 - math.exp(-dt / FILTER_S)
+        self.filtered += alpha * (lux - self.filtered)
+        if self.anchor is None:
+            self.anchor = self.filtered
+            return True
+        hi = self.anchor * 1.10 + 1.0
+        lo = self.anchor * 0.90 - 1.0
+        if lo <= self.filtered <= hi:
+            self.pending_since = None
+            return False
+        if self.pending_since is None:
+            self.pending_since = now
+            return False
+        if now - self.pending_since < DEBOUNCE_S:
+            return False
+        self.anchor = self.filtered
+        self.pending_since = None
+        return True
+
+    def step(self):
+        now = time.monotonic()
+        self.keep_gnome_ambient_off()
+        lux = self.proxy.get_cached_property("LightLevel")
+        unit = self.proxy.get_cached_property("LightLevelUnit")
+        if lux is None or (unit is not None and unit.unpack() != "lux"):
+            self.last_tick = now
+            return
+        lux = float(lux.unpack())
+        changed = self.update_anchor(lux, now)
+        if now < self.armed_at:
+            self.anchor = None
+            self.pending_since = None
+            self.last_tick = now
+            return
+        if not self.slider_ready:
+            self.last_written = self.read_pwm()
+            self.current = self.last_written / self.max_brightness
+            self.slider_ready = True
+        anchor = self.anchor if self.anchor is not None else lux
+        self.note_user_slider(anchor)
+
+        if changed or self.target is None:
+            fraction = clamp(self.curve_fraction(anchor) + self.offset)
+            if abs(fraction - self.target) > 0.002:
+                span = abs(fraction - self.current)
+                self.rate = max(SLOW_PER_S, span / RAMP_MAX_S)
+                self.target = fraction
+                nits = lux_to_nits(anchor)
+                print(
+                    f"lux {anchor:.1f} -> {nits:.1f} nits, "
+                    f"backlight {self.target:.3f}",
+                    flush=True)
+
+        dt = min(1.0, max(0.0, now - self.last_tick))
+        self.last_tick = now
+        if self.current < self.target:
+            self.current = min(self.target, self.current + self.rate * dt)
+        elif self.current > self.target:
+            self.current = max(self.target, self.current - self.rate * dt)
+        self.write_pwm(round(self.current * self.max_brightness))
+
+    def close(self):
+        if self.proxy is None:
+            return
+        try:
+            self.proxy.call_sync("ReleaseLight", None, Gio.DBusCallFlags.NONE, 2000, None)
+        except GLib.Error:
+            pass
+
+
+def main():
+    bright = AutoBright()
+    loop = GLib.MainLoop()
+
+    def tick():
+        try:
+            bright.step()
+        except Exception as exc:
+            print(f"brightness step failed: {exc}", flush=True)
+        return True
+
+    def stop(*_args):
+        bright.close()
+        loop.quit()
+
+    GLib.timeout_add(TICK_MS, tick)
+    signal.signal(signal.SIGTERM, lambda *_: stop())
+    signal.signal(signal.SIGINT, lambda *_: stop())
+    try:
+        loop.run()
+    finally:
+        bright.close()
+
+
+if __name__ == "__main__":
+    main()

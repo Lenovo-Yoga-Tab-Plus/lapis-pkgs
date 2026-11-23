@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Keep the TB520FU clock across reboot.
+
+The PMIC counter starts at 1970 and Linux cannot set it without an offset.
+Android stores that offset in the RTCInfo EFI variable. This writes the same
+variable, and also a stamp, so the next boot is not stuck in 1971 before NTP.
+"""
+
+import os
+import struct
+import subprocess
+import sys
+import time
+
+GUID = "882f8c2b-9646-435f-8de5-f208ff80c1bd"
+EFIVAR = f"/sys/firmware/efi/efivars/RTCInfo-{GUID}"
+GPS_EPOCH = 315964800
+STAMP = "/var/lib/lapis/clock-stamp"
+TIMESYNC = "/var/lib/systemd/timesync/clock"
+# 2024-01-01 UTC. Anything older is the unset PMIC counter or an empty stamp.
+PLAUSIBLE = 1704067200
+ATTRS = 0x7  # non-volatile, boot-service, runtime
+
+
+def system_epoch():
+    return int(time.time())
+
+
+def rtc_epoch():
+    try:
+        with open("/sys/class/rtc/rtc0/since_epoch") as handle:
+            return int(handle.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def stamp_epoch(path):
+    try:
+        stamp = int(os.stat(path).st_mtime)
+    except OSError:
+        return None
+    if stamp < PLAUSIBLE:
+        return None
+    return stamp
+
+
+def set_system(epoch):
+    subprocess.run(["date", "-u", "-s", f"@{epoch}"], check=True)
+
+
+def restore():
+    now = system_epoch()
+    rtc = rtc_epoch()
+    if rtc is not None and rtc >= PLAUSIBLE and rtc > now + 2:
+        subprocess.run(["hwclock", "--hctosys", "--utc"], check=True)
+        print(f"restored system clock from the PMIC RTC ({rtc})")
+        return
+
+    if now >= PLAUSIBLE:
+        return
+
+    best = None
+    for path in (STAMP, TIMESYNC):
+        stamp = stamp_epoch(path)
+        if stamp is not None and (best is None or stamp > best):
+            best = stamp
+    if best is None:
+        print("no saved clock, leaving the system time")
+        return
+    set_system(best)
+    print(f"restored system clock from stamp ({best})")
+
+
+def write_rtcinfo(now, raw):
+    offset = (now - raw) & 0xFFFFFFFF
+    offset_gps = (offset - GPS_EPOCH) & 0xFFFFFFFF
+    blob = struct.pack("<I", ATTRS) + struct.pack("<I", offset_gps) + bytes(8)
+    if os.path.exists(EFIVAR):
+        subprocess.run(["chattr", "-i", EFIVAR], check=False)
+    flags = os.O_WRONLY | os.O_CREAT
+    if os.path.exists(EFIVAR):
+        flags |= os.O_TRUNC
+    fd = os.open(EFIVAR, flags, 0o644)
+    try:
+        written = os.write(fd, blob)
+    finally:
+        os.close(fd)
+    if written != len(blob):
+        raise OSError(f"short EFI write ({written})")
+    with open(EFIVAR, "rb") as handle:
+        stored = handle.read()
+    # efivarfs returns the attribute word followed by the 12-byte record.
+    if stored[-12:] != blob[4:]:
+        raise OSError("RTCInfo readback does not match")
+    print(f"stored PMIC offset {offset} in RTCInfo")
+
+
+def save():
+    now = system_epoch()
+    if now < PLAUSIBLE:
+        print("clock is not set, leaving the saved stamp alone")
+        return
+    os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+    with open(STAMP, "a"):
+        os.utime(STAMP, None)
+    raw = rtc_epoch()
+    if raw is not None:
+        try:
+            write_rtcinfo(now, raw)
+        except OSError as exc:
+            print(f"could not store RTCInfo: {exc}")
+    # The running driver accepts this only after it was booted with the
+    # UEFI offset property. The variable above is what the next boot reads.
+    subprocess.run(["hwclock", "--systohc", "--utc"], check=False)
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ("restore", "save"):
+        print("usage: lapis-clock restore|save", file=sys.stderr)
+        return 2
+    if sys.argv[1] == "restore":
+        restore()
+    else:
+        save()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
