@@ -24,8 +24,8 @@ source=(
   'lapis-gsd-brightness.c'
   'lapis-gsd-brightness.conf'
   'org.lapis.flashlight.policy'
-  'torch-extension/extension.js'
-  'torch-extension/metadata.json'
+  'torch-extension.js'
+  'torch-metadata.json'
   'lapis-privacy-led'
   'lapis-privacy-led.service'
   'lapis-privacy-led.conf'
@@ -66,9 +66,9 @@ package() {
     "$pkgdir/usr/lib/systemd/user/org.gnome.SettingsDaemon.Power.service.d/lapis-brightness.conf"
   install -Dm644 org.lapis.flashlight.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.lapis.flashlight.policy"
-  install -Dm644 torch-extension/extension.js \
+  install -Dm644 torch-extension.js \
     "$pkgdir/usr/share/gnome-shell/extensions/torch@lapis/extension.js"
-  install -Dm644 torch-extension/metadata.json \
+  install -Dm644 torch-metadata.json \
     "$pkgdir/usr/share/gnome-shell/extensions/torch@lapis/metadata.json"
   install -Dm755 lapis-privacy-led "$pkgdir/usr/bin/lapis-privacy-led"
   install -Dm644 lapis-privacy-led.service \
