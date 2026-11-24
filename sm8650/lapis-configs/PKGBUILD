@@ -1,6 +1,6 @@
 pkgname=lapis-configs
 pkgver=1.1
-pkgrel=10
+pkgrel=11
 pkgdesc='Network, camera, logind, and session configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT' 'CC0-1.0')
@@ -21,14 +21,12 @@ source=(
   'machine-info'
   '99-lapis-sensors.gschema.override'
   'lenovo-yoga-tab-plus.tablet'
-  'lapis-about-hardware'
-  'lapis-about-hardware.service'
   'print-renderer'
   'wrap-gpu-name'
   'lapis-gpu-name.hook'
   'lapis-bt-suspend'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm644 lapis.conf \
@@ -58,13 +56,6 @@ package() {
     "$pkgdir/usr/share/glib-2.0/schemas/99-lapis-sensors.gschema.override"
   install -Dm644 lenovo-yoga-tab-plus.tablet \
     "$pkgdir/usr/share/libwacom/lenovo-yoga-tab-plus.tablet"
-  install -Dm755 lapis-about-hardware \
-    "$pkgdir/usr/lib/lapis/about-hardware"
-  install -Dm644 lapis-about-hardware.service \
-    "$pkgdir/usr/lib/systemd/system/lapis-about-hardware.service"
-  install -d "$pkgdir/usr/lib/systemd/system/sysinit.target.wants"
-  ln -s ../lapis-about-hardware.service \
-    "$pkgdir/usr/lib/systemd/system/sysinit.target.wants/lapis-about-hardware.service"
   install -Dm755 print-renderer \
     "$pkgdir/usr/lib/lapis/print-renderer"
   install -Dm755 wrap-gpu-name \
