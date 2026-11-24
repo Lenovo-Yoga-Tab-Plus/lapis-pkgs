@@ -1,6 +1,6 @@
 pkgname=lapis-metapkg
 pkgver=1.0
-pkgrel=4
+pkgrel=5
 pkgdesc='Lenovo Yoga Tab Plus support meta package'
 arch=('any')
 license=('MIT')
@@ -21,6 +21,7 @@ depends=(
   'lapis-sensor-proxy'
   'mesa'
   'wireless-regdb'
+  'waydroid'
 )
 
 package() {

@@ -1,6 +1,6 @@
 pkgname=lapis-configs
 pkgver=1.1
-pkgrel=9
+pkgrel=10
 pkgdesc='Network, camera, logind, and session configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT' 'CC0-1.0')
@@ -9,6 +9,7 @@ backup=('etc/machine-info')
 install=lapis-configs.install
 source=(
   'lapis.conf'
+  'waydroid.conf'
   'lapis-camera.conf'
   'logind.conf'
   '10-usb0.network'
@@ -27,11 +28,13 @@ source=(
   'lapis-gpu-name.hook'
   'lapis-bt-suspend'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm644 lapis.conf \
     "$pkgdir/usr/lib/modules-load.d/lapis.conf"
+  install -Dm644 waydroid.conf \
+    "$pkgdir/usr/lib/modules-load.d/waydroid.conf"
   install -Dm644 lapis-camera.conf \
     "$pkgdir/usr/lib/modules-load.d/lapis-camera.conf"
   install -Dm644 logind.conf \

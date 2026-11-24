@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=4
+pkgrel=5
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -46,6 +46,13 @@ prepare() {
   ./scripts/config --file .config -m KEYBOARD_LENOVO_TB520FU_POGO
   ./scripts/config --file .config -m REGULATOR_WL2868C
   ./scripts/config --file .config -m CHARGER_LENOVO_TB520FU_PEN
+  # Waydroid creates binder, vndbinder, and hwbinder through binderfs.
+  # A built-in devices string would also create those nodes under /dev and
+  # the container would bind the wrong ones.
+  ./scripts/config --file .config -e PSI
+  ./scripts/config --file .config -e ANDROID_BINDER_IPC
+  ./scripts/config --file .config -e ANDROID_BINDERFS
+  ./scripts/config --file .config --set-str ANDROID_BINDER_DEVICES ""
   # The bring-up initramfs is a separate tree. This package boots the root
   # named on the kernel command line.
   ./scripts/config --file .config --set-str INITRAMFS_SOURCE ""
