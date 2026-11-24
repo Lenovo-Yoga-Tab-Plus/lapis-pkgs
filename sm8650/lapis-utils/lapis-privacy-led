@@ -1,0 +1,30 @@
+#!/bin/sh
+# Light the indicator beside the front camera while either sensor is streaming.
+LED=/sys/class/leds/privacy:camera/brightness
+
+sensors() {
+	for dev in /sys/bus/i2c/devices/*-*; do
+		alias=$(cat "$dev/modalias" 2>/dev/null) || continue
+		case $alias in
+		*galaxycore,gc13a0*|*galaxycore,gc13a2*)
+			printf '%s\n' "$dev/power/runtime_status"
+			;;
+		esac
+	done
+}
+
+on=0
+while true; do
+	state=
+	for s in $(sensors); do
+		[ "$(cat "$s" 2>/dev/null)" = active ] && state=active
+	done
+	if [ "$state" = active ]; then
+		[ "$on" = 1 ] || echo 200 > "$LED"
+		on=1
+	else
+		[ "$on" = 0 ] || echo 0 > "$LED"
+		on=0
+	fi
+	sleep 0.3
+done

@@ -10,8 +10,9 @@ backlight fraction with its linear screenBrightnessMap. Changes wait the
 overlay's 2000 ms brighten and darken debounce, then move at the vendor ramp
 (0.04 per second, never longer than 3 seconds).
 
-GNOME's ambient switch stays off so its relative curve does not fight this
-one. A slider move is kept as an offset from the Android curve.
+The Settings switch is the on/off control. GNOME's own brightness target
+is ignored, so this curve is the one that runs while the switch is on.
+A slider move is kept as an offset from the Android curve.
 """
 
 import math
@@ -144,6 +145,7 @@ class AutoBright:
         self.last_tick = time.monotonic()
         self.armed_at = self.last_tick + 1.0
         self.slider_ready = False
+        self.ambient = True
         self.next_setting_check = 0.0
         self.proxy = None
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
@@ -197,16 +199,18 @@ class AutoBright:
             capture_output=True, text=True, timeout=2)
         return result
 
-    def keep_gnome_ambient_off(self):
-        """GNOME's switch runs its own curve. Leave that switch off."""
+    def ambient_on(self):
+        """Follow the Settings auto-brightness switch. Do not change it."""
         now = time.monotonic()
         if now < self.next_setting_check:
-            return
-        self.next_setting_check = now + 15.0
+            return self.ambient
+        self.next_setting_check = now + 1.0
         try:
             users = [name for name in os.listdir("/run/user") if name.isdigit() and int(name) >= 1000]
         except OSError:
-            return
+            return self.ambient
+        saw_user = False
+        enabled = False
         for uid in users:
             if not os.path.exists(f"/run/user/{uid}/bus"):
                 continue
@@ -214,8 +218,14 @@ class AutoBright:
                 current = self.gsettings(uid, "get", "org.gnome.settings-daemon.plugins.power", "ambient-enabled")
             except (OSError, subprocess.TimeoutExpired):
                 continue
-            if current.returncode == 0 and current.stdout.strip() == "true":
-                self.gsettings(uid, "set", "org.gnome.settings-daemon.plugins.power", "ambient-enabled", "false")
+            if current.returncode != 0:
+                continue
+            saw_user = True
+            if current.stdout.strip() == "true":
+                enabled = True
+        if saw_user:
+            self.ambient = enabled
+        return self.ambient
 
     def note_user_slider(self, lux):
         actual = self.read_pwm()
@@ -257,7 +267,12 @@ class AutoBright:
 
     def step(self):
         now = time.monotonic()
-        self.keep_gnome_ambient_off()
+        if not self.ambient_on():
+            self.anchor = None
+            self.pending_since = None
+            self.slider_ready = False
+            self.last_tick = now
+            return
         lux = self.proxy.get_cached_property("LightLevel")
         unit = self.proxy.get_cached_property("LightLevelUnit")
         if lux is None or (unit is not None and unit.unpack() != "lux"):

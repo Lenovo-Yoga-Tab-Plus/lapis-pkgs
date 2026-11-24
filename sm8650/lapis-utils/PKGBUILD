@@ -1,6 +1,6 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=5
+pkgrel=6
 pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
@@ -18,14 +18,19 @@ source=(
   'lapis-tablet-mode.service'
   'lapis-autobright'
   'lapis-autobright.service'
-  'lapis-autobright-gnome.service'
   'lapis-clock'
   'lapis-clock-restore.service'
   'lapis-clock-save.service'
   'lapis-gsd-brightness.c'
   'lapis-gsd-brightness.conf'
+  'org.lapis.flashlight.policy'
+  'torch-extension/extension.js'
+  'torch-extension/metadata.json'
+  'lapis-privacy-led'
+  'lapis-privacy-led.service'
+  'lapis-privacy-led.conf'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 build() {
   gcc -shared -fPIC -O2 -Wall -Wextra -o liblapis-gsd-brightness.so lapis-gsd-brightness.c -ldl
@@ -51,8 +56,6 @@ package() {
     "$pkgdir/usr/lib/systemd/system/lapis-tablet-mode.service"
   install -Dm644 lapis-autobright.service \
     "$pkgdir/usr/lib/systemd/system/lapis-autobright.service"
-  install -Dm644 lapis-autobright-gnome.service \
-    "$pkgdir/usr/lib/systemd/user/lapis-autobright-gnome.service"
   install -Dm644 lapis-clock-restore.service \
     "$pkgdir/usr/lib/systemd/system/lapis-clock-restore.service"
   install -Dm644 lapis-clock-save.service \
@@ -61,11 +64,21 @@ package() {
     "$pkgdir/usr/lib/lapis/liblapis-gsd-brightness.so"
   install -Dm644 lapis-gsd-brightness.conf \
     "$pkgdir/usr/lib/systemd/user/org.gnome.SettingsDaemon.Power.service.d/lapis-brightness.conf"
+  install -Dm644 org.lapis.flashlight.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.lapis.flashlight.policy"
+  install -Dm644 torch-extension/extension.js \
+    "$pkgdir/usr/share/gnome-shell/extensions/torch@lapis/extension.js"
+  install -Dm644 torch-extension/metadata.json \
+    "$pkgdir/usr/share/gnome-shell/extensions/torch@lapis/metadata.json"
+  install -Dm755 lapis-privacy-led "$pkgdir/usr/bin/lapis-privacy-led"
+  install -Dm644 lapis-privacy-led.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-privacy-led.service"
+  install -Dm644 lapis-privacy-led.conf \
+    "$pkgdir/usr/lib/modules-load.d/lapis-privacy-led.conf"
   install -d "$pkgdir/usr/lib/systemd/system/local-fs.target.wants" \
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants" \
     "$pkgdir/usr/lib/systemd/system/sysinit.target.wants" \
-    "$pkgdir/usr/lib/systemd/system/time-sync.target.wants" \
-    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
+    "$pkgdir/usr/lib/systemd/system/time-sync.target.wants"
   ln -s ../mnt-persist.mount \
     "$pkgdir/usr/lib/systemd/system/local-fs.target.wants/mnt-persist.mount"
   ln -s ../lapis-hardware-mac.service \
@@ -76,10 +89,10 @@ package() {
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-tablet-mode.service"
   ln -s ../lapis-autobright.service \
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-autobright.service"
+  ln -s ../lapis-privacy-led.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-privacy-led.service"
   ln -s ../lapis-clock-restore.service \
     "$pkgdir/usr/lib/systemd/system/sysinit.target.wants/lapis-clock-restore.service"
   ln -s ../lapis-clock-save.service \
     "$pkgdir/usr/lib/systemd/system/time-sync.target.wants/lapis-clock-save.service"
-  ln -s ../lapis-autobright-gnome.service \
-    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/lapis-autobright-gnome.service"
 }

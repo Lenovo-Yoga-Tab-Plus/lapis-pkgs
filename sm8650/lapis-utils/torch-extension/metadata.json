@@ -1,0 +1,7 @@
+{
+  "uuid": "torch@lapis",
+  "name": "Torch",
+  "description": "Turn the camera torch on and off.",
+  "shell-version": ["51"],
+  "session-modes": ["user"]
+}
