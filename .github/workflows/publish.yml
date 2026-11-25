@@ -118,13 +118,10 @@ jobs:
           path: repo/repo/
           retention-days: 1
 
-  deploy:
-    name: Deploy to Pages
+  pages:
+    name: Stage Pages
     needs: [pacman]
-    runs-on: ubuntu-24.04-arm
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -143,18 +140,19 @@ jobs:
       - name: Stage Pages content
         run: scripts/stage-pages.sh
 
-      - name: Delete stale Pages artifact
-        uses: geekyeggo/delete-artifact@v5
-        with:
-          name: github-pages
-          failOnError: false
-
       - name: Upload Pages artifact
-        id: pages-artifact
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
+  deploy:
+    name: Deploy to Pages
+    needs: [pages]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v5
