@@ -1,4 +1,3 @@
-qbootctl
 qrtr
 hexagonrpc
 lapis-sensor-proxy

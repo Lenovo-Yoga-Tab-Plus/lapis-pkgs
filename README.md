@@ -4,7 +4,9 @@ Pacman repository for the Lenovo Yoga Tab Plus (TB520FU, codename lapis, SM8650P
 
 ## Layout
 
-`common/` has the three userspace tools this port built. `qbootctl` handles the A/B slot, `qrtr` is the sensor name service, and `hexagonrpc` (commit `40e50412812a`) is the ADSP sensor file server.
+`common/` has the two userspace tools this port built. `qrtr` is the sensor name service, and `hexagonrpc` (commit `40e50412812a`) is the ADSP sensor file server.
+
+`qbootctl` is not packaged and must not be installed. `qbootctl -s` moves the active flag without the partition type GUIDs, and this tablet's bootloader then refuses every boot and stays in fastboot. `lapis-slot` in `lapis-utils` reads the slot state and marks the booted slot successful. Slots are switched from fastboot with `fastboot set_active`.
 
 `sm8650/` has the kernel package, the firmware helper, ALSA UCM, WirePlumber, the topology, network and session config, the slot and charge tools, the hotspot, the ADB gadget, and `lapis-metapkg`.
 

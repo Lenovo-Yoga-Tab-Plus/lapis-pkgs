@@ -1,10 +1,15 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=6
+pkgrel=7
 pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
-depends=('qbootctl' 'python' 'python-gobject' 'libgpiod' 'iproute2' 'bluez-utils')
+depends=('python' 'python-gobject' 'libgpiod' 'iproute2' 'bluez-utils')
+# qbootctl -s moves the active flag without the partition type GUIDs and leaves
+# this tablet stuck in fastboot. lapis-slot marks the slot itself, so an
+# upgrade takes qbootctl off the system.
+conflicts=('qbootctl')
+replaces=('qbootctl')
 source=(
   'lapis-hardware-mac'
   'lapis-slot'

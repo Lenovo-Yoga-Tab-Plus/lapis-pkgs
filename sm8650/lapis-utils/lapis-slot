@@ -1,136 +1,358 @@
-#!/bin/sh
+#!/usr/bin/python3
 # SPDX-License-Identifier: GPL-2.0-only
-set -eu
+"""A/B slot state for the Lenovo Yoga Tab Plus (lapis).
 
-qbootctl=/usr/local/bin/qbootctl
-[ -x "$qbootctl" ] || qbootctl=/usr/bin/qbootctl
+Reads the slot flags from the GPT of the UFS LUN that holds boot_a and boot_b,
+and marks the booted slot successful.
 
-usage()
-{
-	cat <<'EOF'
-Usage:
-  lapis-slot status
-  lapis-slot android [--reboot]
-  lapis-slot linux [--reboot]
-  lapis-slot a|b [--reboot]
+It never changes the active slot. On this tablet the active flag and the
+partition type GUIDs have to move together. The bootloader refuses to boot a
+slot whose boot_X and abl_X entries carry the same type GUID, which is what
+the inactive slot looks like. `fastboot set_active` moves both. A tool that
+moves only the flag leaves the tablet stuck in fastboot, and the way out is an
+EDL repair of the table. Switch slots from fastboot.
+"""
 
-Semantic names are resolved from the slot running this Linux system:
-  linux    current boot slot
-  android  other boot slot
-EOF
-}
+import binascii
+import fcntl
+import glob
+import os
+import stat
+import struct
+import sys
+import uuid
 
-current_slot()
-{
-	current=$(
-		"$qbootctl" -c 2>/dev/null |
-			awk '$1 == "Current" && $2 == "slot:" { print $3; exit }'
-	) || true
+PROG = os.path.basename(sys.argv[0]) or "lapis-slot"
 
-	case "$current" in
-		_a) printf '%s\n' a ;;
-		_b) printf '%s\n' b ;;
-		*) return 1 ;;
-	esac
-}
+# Byte 54 of a GPT entry is attribute bits 48..55, where the bootloader keeps
+# the slot state of boot_a and boot_b.
+AB_BYTE = 54
+PRIO, ACTIVE, RETRY, SUCCESS, UNBOOT = 0x03, 0x04, 0x38, 0x40, 0x80
 
-if [ "$(id -u)" -ne 0 ]; then
-	echo "lapis-slot must be run as root" >&2
-	exit 1
-fi
+BLKSSZGET = 0x1268
+BOOT_LUN_GLOBS = (
+    "/sys/devices/platform/soc@0/*ufs*/attributes/boot_lun_enabled",
+    "/sys/bus/platform/devices/*ufs*/attributes/boot_lun_enabled",
+)
+BOOT_LUN_SLOT = {1: "a", 2: "b"}
 
-if [ ! -x "$qbootctl" ]; then
-	echo "missing executable: qbootctl" >&2
-	exit 1
-fi
+EXIT_USAGE = 2
+EXIT_INCONSISTENT = 3
 
-command=${1:-status}
-reboot_after=0
-running_slot=$(current_slot || true)
 
-case ${2:-} in
-	"") ;;
-	--reboot) reboot_after=1 ;;
-	*) usage >&2; exit 2 ;;
-esac
+class SlotError(Exception):
+    pass
 
-if [ "$#" -gt 2 ]; then
-	usage >&2
-	exit 2
-fi
 
-case "$command" in
-	status)
-		if [ "$reboot_after" -ne 0 ]; then
-			usage >&2
-			exit 2
-		fi
-		case "$running_slot" in
-			a) echo "Detected mapping: _a=Linux, _b=Android" ;;
-			b) echo "Detected mapping: _b=Linux, _a=Android" ;;
-			*) echo "Detected mapping: unavailable; use explicit a or b" ;;
-		esac
-		"$qbootctl" 2>/dev/null || true
-		exit 0
-		;;
-	android)
-		case "$running_slot" in
-			a) target=b ;;
-			b) target=a ;;
-			*)
-				echo "unable to identify the running Linux slot; use explicit a or b" >&2
-				exit 1
-				;;
-		esac
-		expected=_$target
-		label=Android
-		;;
-	linux)
-		case "$running_slot" in
-			a|b) target=$running_slot ;;
-			*)
-				echo "unable to identify the running Linux slot; use explicit a or b" >&2
-				exit 1
-				;;
-		esac
-		expected=_$target
-		label=Linux
-		;;
-	a)
-		target=a
-		expected=_a
-		label="slot A"
-		;;
-	b)
-		target=b
-		expected=_b
-		label="slot B"
-		;;
-	-h|--help|help)
-		usage
-		exit 0
-		;;
-	*)
-		usage >&2
-		exit 2
-		;;
-esac
+def crc32(data):
+    return binascii.crc32(data) & 0xFFFFFFFF
 
-"$qbootctl" -s "$target"
-sync
 
-active=$("$qbootctl" -a 2>/dev/null | awk '{print $NF}')
-if [ "$active" != "$expected" ]; then
-	echo "slot verification failed: expected $expected, found ${active:-unknown}" >&2
-	exit 1
-fi
+class Copy:
+    """One copy (primary or backup) of the partition table."""
 
-echo "Next boot: $label ($expected)"
+    def __init__(self, fd, sec, lba, label):
+        self.label = label
+        self.sec = sec
+        self.lba = lba
+        self.header = bytearray(os.pread(fd, sec, lba * sec))
+        if len(self.header) != sec or self.header[:8] != b"EFI PART":
+            raise SlotError(f"{label} table: no GPT header at sector {lba}")
 
-if [ "$reboot_after" -eq 0 ]; then
-	echo "Reboot when ready, or run: lapis-slot $command --reboot"
-	exit 0
-fi
+        self.hsize = struct.unpack_from("<I", self.header, 12)[0]
+        if not 92 <= self.hsize <= sec:
+            raise SlotError(f"{label} table: bad header size {self.hsize}")
+        if self.header_crc() != struct.unpack_from("<I", self.header, 16)[0]:
+            raise SlotError(f"{label} table: header checksum mismatch")
 
-echo "Rebooting into $label"
-systemctl reboot
+        self.my_lba, self.alt_lba = struct.unpack_from("<QQ", self.header, 24)
+        self.entries_lba = struct.unpack_from("<Q", self.header, 72)[0]
+        self.count, self.esize = struct.unpack_from("<II", self.header, 80)
+        if self.my_lba != lba:
+            raise SlotError(f"{label} table: header says sector {self.my_lba}, read from {lba}")
+        if self.esize != 128 or not 1 <= self.count <= 1024:
+            raise SlotError(f"{label} table: unexpected entry layout {self.count} x {self.esize}")
+
+        size = self.count * self.esize
+        self.entries = bytearray(os.pread(fd, size, self.entries_lba * sec))
+        if len(self.entries) != size:
+            raise SlotError(f"{label} table: short read of the entries")
+        if crc32(self.entries) != struct.unpack_from("<I", self.header, 88)[0]:
+            raise SlotError(f"{label} table: entries checksum mismatch")
+
+    def header_crc(self):
+        head = bytearray(self.header[: self.hsize])
+        head[16:20] = b"\0\0\0\0"
+        return crc32(head)
+
+    def seal(self):
+        struct.pack_into("<I", self.header, 88, crc32(self.entries))
+        struct.pack_into("<I", self.header, 16, self.header_crc())
+
+    def write(self, fd, index):
+        """Write the entries sector holding entry `index`, then the header."""
+        start = (index * self.esize) // self.sec * self.sec
+        chunk = bytes(self.entries[start : start + self.sec])
+        os.pwrite(fd, chunk, self.entries_lba * self.sec + start)
+        os.pwrite(fd, bytes(self.header), self.lba * self.sec)
+        os.fsync(fd)
+
+
+def find_index(entries, name):
+    for i in range(len(entries) // 128):
+        entry = entries[i * 128 : (i + 1) * 128]
+        if entry[:16] == b"\0" * 16:
+            continue
+        if entry[56:128].decode("utf-16le", "replace").rstrip("\0") == name:
+            return i
+    return None
+
+
+def type_guid(entries, index):
+    return uuid.UUID(bytes_le=bytes(entries[index * 128 : index * 128 + 16]))
+
+
+def default_device():
+    """The whole disk that carries boot_a and boot_b."""
+    disks = set()
+    for name in ("boot_a", "boot_b"):
+        link = f"/dev/disk/by-partlabel/{name}"
+        if not os.path.exists(link):
+            raise SlotError(f"{link} is missing; this is not an A/B layout this tool knows")
+        part = os.path.basename(os.path.realpath(link))
+        sysdir = os.path.realpath(f"/sys/class/block/{part}")
+        disks.add(os.path.basename(os.path.dirname(sysdir)))
+    if len(disks) != 1:
+        raise SlotError(f"boot_a and boot_b are on different disks: {sorted(disks)}")
+    return "/dev/" + disks.pop()
+
+
+def sector_sizes(fd):
+    if stat.S_ISBLK(os.fstat(fd).st_mode):
+        raw = fcntl.ioctl(fd, BLKSSZGET, struct.pack("i", 0))
+        return [struct.unpack("i", raw)[0]]
+    return [4096, 512]
+
+
+def boot_lun():
+    for pattern in BOOT_LUN_GLOBS:
+        for path in glob.glob(pattern):
+            try:
+                with open(path) as handle:
+                    return int(handle.read().strip(), 0)
+            except (OSError, ValueError):
+                continue
+    return None
+
+
+class Table:
+    def __init__(self, path, writable=False):
+        self.path = path
+        try:
+            self.fd = os.open(path, os.O_RDWR if writable else os.O_RDONLY)
+        except PermissionError:
+            raise SlotError(f"cannot open {path}; run {PROG} as root") from None
+        except OSError as err:
+            raise SlotError(f"cannot open {path}: {err.strerror}") from None
+        self.is_block = stat.S_ISBLK(os.fstat(self.fd).st_mode)
+        self.load()
+
+    def load(self):
+        fd = self.fd
+        total = os.lseek(fd, 0, os.SEEK_END)
+        for sec in sector_sizes(fd):
+            if os.pread(fd, 8, sec) == b"EFI PART":
+                break
+        else:
+            raise SlotError(f"{self.path}: no GPT found")
+        self.sec = sec
+
+        self.primary = Copy(fd, sec, 1, "primary")
+        if self.primary.alt_lba != total // sec - 1:
+            raise SlotError("primary table does not point at the last sector of the disk")
+        self.backup = Copy(fd, sec, self.primary.alt_lba, "backup")
+        if self.backup.alt_lba != 1:
+            raise SlotError("backup table does not point back at sector 1")
+        if self.primary.entries != self.backup.entries:
+            raise SlotError("primary and backup tables differ")
+
+        entries = self.primary.entries
+        self.index = {}
+        for name in ("boot_a", "boot_b", "abl_a", "abl_b"):
+            self.index[name] = find_index(entries, name)
+            if self.index[name] is None:
+                raise SlotError(f"no {name} partition on {self.path}")
+
+        self.flags = {s: entries[self.index[f"boot_{s}"] * 128 + AB_BYTE] for s in "ab"}
+        # The slot the bootloader accepts is the one whose boot and abl entries
+        # have different type GUIDs. The other slot's entries all share the
+        # generic inactive type.
+        self.real = {
+            s: type_guid(entries, self.index[f"boot_{s}"]) != type_guid(entries, self.index[f"abl_{s}"])
+            for s in "ab"
+        }
+        self.active = [s for s in "ab" if self.flags[s] & ACTIVE]
+        self.typed = [s for s in "ab" if self.real[s]]
+        self.lun = boot_lun() if self.is_block else None
+
+    def problem(self):
+        """None when the table is in a state the bootloader boots."""
+        if len(self.active) != 1:
+            found = ", ".join("_" + s for s in self.active) or "neither slot"
+            return f"the active flag is set on {found}; expected exactly one slot"
+        if len(self.typed) != 1:
+            found = ", ".join("_" + s for s in self.typed) or "neither slot"
+            return f"the real partition types are on {found}; expected exactly one slot"
+        if self.active != self.typed:
+            return (
+                f"INVERTED: the active flag is on _{self.active[0]} but the real partition "
+                f"types are on _{self.typed[0]}. The bootloader will not boot this."
+            )
+        if self.lun is not None and BOOT_LUN_SLOT.get(self.lun) != self.active[0]:
+            return f"the UFS boot LUN is {self.lun}, which does not match active slot _{self.active[0]}"
+        return None
+
+    def close(self):
+        os.close(self.fd)
+
+
+def describe(table):
+    print(f"Device: {table.path} ({table.sec}-byte sectors)")
+    for slot in "ab":
+        flags = table.flags[slot]
+        print(
+            f"Slot _{slot}: active={int(bool(flags & ACTIVE))} "
+            f"successful={int(bool(flags & SUCCESS))} "
+            f"unbootable={int(bool(flags & UNBOOT))} "
+            f"retry={(flags & RETRY) >> 3} priority={flags & PRIO} "
+            f"types={'real' if table.real[slot] else 'inactive'} "
+            f"(0x{flags:02x})"
+        )
+    if table.lun is not None:
+        print(f"Boot LUN: {table.lun} (_{BOOT_LUN_SLOT.get(table.lun, '?')})")
+
+
+def cmd_status(path):
+    table = Table(path)
+    describe(table)
+    problem = table.problem()
+    table.close()
+    if problem:
+        print(f"State: {problem}")
+        print("Do not reboot into this state from a guess. See the recovery notes for this tablet.")
+        return EXIT_INCONSISTENT
+    slot = table.active[0]
+    other = "b" if slot == "a" else "a"
+    print(f"State: consistent. This system runs from slot _{slot}; the other slot is _{other}.")
+    return 0
+
+
+def cmd_mark(path):
+    table = Table(path, writable=True)
+    try:
+        problem = table.problem()
+        if problem:
+            describe(table)
+            raise SlotError(f"not touching the table: {problem}")
+
+        slot = table.active[0]
+        flags = table.flags[slot]
+        if flags & UNBOOT:
+            raise SlotError(f"slot _{slot} is marked unbootable; fix that from fastboot (set_active)")
+        if flags & SUCCESS:
+            print(f"Slot _{slot}: already marked successful")
+            return 0
+
+        index = table.index[f"boot_{slot}"]
+        offset = index * 128 + AB_BYTE
+        before = bytes(table.primary.entries)
+        # Backup first, so the primary stays valid until the backup is whole.
+        for copy in (table.backup, table.primary):
+            copy.entries[offset] = flags | SUCCESS
+            copy.seal()
+        changed = [i for i in range(len(before)) if before[i] != table.primary.entries[i]]
+        if changed != [offset]:
+            raise SlotError("internal error: the edit touched more than one byte")
+        want = bytes(table.primary.entries)
+
+        table.backup.write(table.fd, index)
+        table.primary.write(table.fd, index)
+
+        try:
+            os.posix_fadvise(table.fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        except OSError:
+            pass
+        table.load()
+        if bytes(table.primary.entries) != want or bytes(table.backup.entries) != want:
+            raise SlotError("readback does not match what was written")
+        if table.problem() or not table.flags[slot] & SUCCESS:
+            raise SlotError("readback is not in the expected state")
+        print(f"Slot _{slot}: marked boot successful")
+        return 0
+    finally:
+        table.close()
+
+
+USAGE = f"""Usage:
+  {PROG} status
+  {PROG} mark-successful
+
+status           print the A/B slot state and check that it is one the
+                 bootloader boots
+mark-successful  set the successful flag on the slot this system booted from
+
+Add --device PATH to work on another disk or on an image file.
+
+This tool does not switch slots. Switch from fastboot:
+  fastboot set_active a      Linux
+  fastboot set_active b      Android
+"""
+
+NO_SWITCH = f"""{PROG} does not switch slots from Linux.
+
+Switching the active flag without the partition type GUIDs leaves this tablet
+stuck in fastboot. Switch from fastboot instead, which moves both:
+
+  fastboot set_active b      Android
+  fastboot set_active a      Linux
+  fastboot reboot
+
+To reach fastboot from Linux: reboot, then long-press power at the GRUB menu.
+"""
+
+
+def main(argv):
+    args = list(argv)
+    path = None
+    if "--device" in args:
+        at = args.index("--device")
+        if at + 1 >= len(args):
+            sys.stderr.write(USAGE)
+            return EXIT_USAGE
+        path = args[at + 1]
+        del args[at : at + 2]
+
+    command = args[0] if args else "status"
+    if command in ("-h", "--help", "help"):
+        sys.stdout.write(USAGE)
+        return 0
+    if command in ("android", "linux", "a", "b"):
+        sys.stderr.write(NO_SWITCH)
+        return EXIT_USAGE
+    if len(args) > 1 or command not in ("status", "mark-successful"):
+        sys.stderr.write(USAGE)
+        return EXIT_USAGE
+
+    try:
+        if path is None:
+            path = default_device()
+        if command == "status":
+            return cmd_status(path)
+        return cmd_mark(path)
+    except SlotError as err:
+        sys.stderr.write(f"{PROG}: {err}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
