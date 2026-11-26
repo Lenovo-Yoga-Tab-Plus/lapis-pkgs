@@ -1,6 +1,6 @@
 pkgname=lapis-dracut
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Dracut modules for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
