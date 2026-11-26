@@ -1,12 +1,14 @@
 pkgname=lapis-metapkg
 pkgver=1.0
-pkgrel=6
+pkgrel=7
 pkgdesc='Lenovo Yoga Tab Plus support meta package'
 arch=('any')
 license=('MIT')
 depends=(
   'linux-lapis'
   'lenovo-lapis-firmware'
+  'lapis-dracut'
+  'lapis-grub-config'
   'alsa-ucm-conf-sm8650'
   'lapis-sound-conf'
   'lapis-configs'

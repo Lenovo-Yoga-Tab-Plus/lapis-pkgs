@@ -1,0 +1,11 @@
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = linux-lapis
+Target = linux
+
+[Action]
+Description = Refreshing Yoga Tab Plus GRUB menu
+When = PostTransaction
+Exec = /usr/local/bin/lapis-refresh-grub-config

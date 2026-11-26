@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+    printf 'linux-lapis.install: %s\n' "$*" >&2
+}
+
+ensure_tmpdir() {
+    local tmpdir="${TMPDIR:-/tmp}"
+
+    mkdir -p /tmp /var/tmp
+    chmod 1777 /tmp /var/tmp 2>/dev/null || true
+
+    if [ ! -d "$tmpdir" ] || [ ! -w "$tmpdir" ]; then
+        tmpdir=/tmp
+    fi
+
+    export TMPDIR="$tmpdir"
+}
+
+refresh_boot_artifacts() {
+    local kernver=
+    local module_dir=
+    local initramfs=
+    local release_file=/usr/share/kernel/lenovo-lapis/kernel.release
+
+    if [ -x /usr/local/bin/lapis-refresh-initramfs ]; then
+        /usr/local/bin/lapis-refresh-initramfs
+        return
+    fi
+
+    ensure_tmpdir
+
+    if [ -f "$release_file" ]; then
+        kernver="$(tr -d '\n' < "$release_file")"
+    else
+        shopt -s nullglob
+        local lapis_modules=(/usr/lib/modules/*lapis*)
+        shopt -u nullglob
+        if [ "${#lapis_modules[@]}" -gt 0 ]; then
+            kernver="$(basename "$(printf '%s\n' "${lapis_modules[@]}" | xargs -r ls -1dt | head -n1)")"
+        fi
+    fi
+
+    if [ -z "$kernver" ]; then
+        log "unable to determine installed kernel release"
+        return 1
+    fi
+
+    module_dir="/usr/lib/modules/$kernver"
+    initramfs="$module_dir/initramfs-$kernver.img"
+
+    if [ ! -d "$module_dir" ]; then
+        log "missing module directory: $module_dir"
+        return 1
+    fi
+
+    log "building initramfs for $kernver"
+    dracut --force --no-hostonly --kver "$kernver" "$initramfs"
+
+    if [ -d /boot ]; then
+        cp -f "$initramfs" /boot/initramfs.img
+        cp -f "$initramfs" "/boot/initramfs-${kernver}.img"
+    fi
+
+    if [ -x /usr/local/bin/lapis-refresh-grub-config ] && mountpoint -q /boot; then
+        log "refreshing GRUB menu"
+        LAPIS_INITRAMFS_SOURCE="$initramfs" /usr/local/bin/lapis-refresh-grub-config
+    fi
+}
+
+post_install() {
+    refresh_boot_artifacts
+}
+
+post_upgrade() {
+    refresh_boot_artifacts
+}

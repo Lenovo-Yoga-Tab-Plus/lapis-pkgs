@@ -1,0 +1,24 @@
+pkgname=lapis-dracut
+pkgver=1.0
+pkgrel=1
+pkgdesc='Dracut modules for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('GPL-2.0-only')
+depends=('lenovo-lapis-firmware' 'dracut')
+install='lapis-dracut.install'
+source=(
+  'module-setup.sh'
+  'lapis.conf'
+  'lapis-refresh-initramfs'
+  'lapis-dracut.install'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 module-setup.sh \
+    "$pkgdir/usr/lib/dracut/modules.d/90lapisfw/module-setup.sh"
+  install -Dm644 lapis.conf \
+    "$pkgdir/usr/lib/dracut/dracut.conf.d/10-lapis.conf"
+  install -Dm755 lapis-refresh-initramfs \
+    "$pkgdir/usr/local/bin/lapis-refresh-initramfs"
+}

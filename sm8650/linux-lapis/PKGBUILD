@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=6
+pkgrel=7
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -12,6 +12,7 @@ makedepends=(
   'rsync' 'tar' 'xz'
 )
 options=('!strip' '!debug')
+install=linux-lapis.install
 # Sibling checkout of this port. Override with KERNEL_SRC, or mount it at
 # /kernel inside the package builder container.
 _kernel_src="${KERNEL_SRC:-$startdir/../../../linux-tb520fu}"
@@ -53,9 +54,8 @@ prepare() {
   ./scripts/config --file .config -e ANDROID_BINDER_IPC
   ./scripts/config --file .config -e ANDROID_BINDERFS
   ./scripts/config --file .config --set-str ANDROID_BINDER_DEVICES ""
-  # Nothing is embedded. GRUB loads /boot/initramfs.img, which is what
-  # resolves root=LABEL=eos-lapis. The kernel itself only accepts PARTUUID=
-  # and PARTLABEL=.
+  # Dracut builds the initramfs when this package is installed. The
+  # kernel image itself stays without one.
   ./scripts/config --file .config --set-str INITRAMFS_SOURCE ""
   make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} olddefconfig
 }
@@ -70,7 +70,7 @@ build() {
 
 package_linux-lapis() {
   pkgdesc='The Linux kernel and modules for the Lenovo Yoga Tab Plus'
-  depends=('coreutils' 'kmod' 'lenovo-lapis-firmware')
+  depends=('coreutils' 'dracut' 'kmod' 'lenovo-lapis-firmware')
   provides=('linux')
 
   cd "$srcdir/linux"
@@ -92,11 +92,6 @@ package_linux-lapis() {
   # vmlinuz-$kernver is the packaged compressed image.
   install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/vmlinuz-$kernver"
   install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/Image"
-  # GRUB loads this beside Image. It mounts the filesystem label from
-  # root=LABEL=eos-lapis; the kernel cannot.
-  "$startdir/initramfs/build-initramfs.sh" \
-    "$startdir/../../../initramfs_build/mini_stage/bin/busybox" \
-    "$pkgdir/boot/initramfs.img"
   install -Dm644 System.map "$pkgdir/boot/System.map-$kernver"
   install -Dm644 .config "$pkgdir/boot/config-$kernver"
 

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+    printf 'lapis-refresh-initramfs: %s\n' "$*" >&2
+}
+
+ensure_tmpdir() {
+    local tmpdir="${TMPDIR:-/tmp}"
+
+    mkdir -p /tmp /var/tmp
+    chmod 1777 /tmp /var/tmp 2>/dev/null || true
+
+    if [ ! -d "$tmpdir" ] || [ ! -w "$tmpdir" ]; then
+        tmpdir=/tmp
+    fi
+
+    export TMPDIR="$tmpdir"
+}
+
+find_lapis_kernel() {
+    local release_file=/usr/share/kernel/lenovo-lapis/kernel.release
+
+    if [ -f "$release_file" ]; then
+        tr -d '\n' < "$release_file"
+        return 0
+    fi
+
+    shopt -s nullglob
+    local lapis_modules=(/usr/lib/modules/*lapis*)
+    shopt -u nullglob
+    if [ "${#lapis_modules[@]}" -eq 0 ]; then
+        return 1
+    fi
+
+    basename "$(printf '%s\n' "${lapis_modules[@]}" | xargs -r ls -1dt | head -n1)"
+}
+
+publish_boot_copies() {
+    local kernver="$1"
+    local initramfs="$2"
+
+    if [ ! -d /boot ]; then
+        return 0
+    fi
+
+    cp -f "$initramfs" /boot/initramfs.img
+    cp -f "$initramfs" "/boot/initramfs-${kernver}.img"
+}
+
+main() {
+    local kernver=
+    local module_dir=
+    local initramfs=
+
+    ensure_tmpdir
+
+    if ! kernver="$(find_lapis_kernel)"; then
+        log "no installed lapis kernel found; skipping dracut rebuild"
+        return 0
+    fi
+
+    module_dir="/usr/lib/modules/$kernver"
+    initramfs="$module_dir/initramfs-$kernver.img"
+
+    if [ ! -d "$module_dir" ]; then
+        log "missing module directory: $module_dir"
+        return 0
+    fi
+
+    log "building initramfs for $kernver"
+    dracut --force --no-hostonly --kver "$kernver" "$initramfs"
+
+    publish_boot_copies "$kernver" "$initramfs"
+    log "published /boot/initramfs.img"
+
+    if [ -x /usr/local/bin/lapis-refresh-grub-config ] && mountpoint -q /boot; then
+        log "refreshing GRUB menu"
+        LAPIS_INITRAMFS_SOURCE="$initramfs" /usr/local/bin/lapis-refresh-grub-config
+    else
+        log "GRUB refresh helper not installed or /boot is not mounted; skipping"
+    fi
+}
+
+main "$@"

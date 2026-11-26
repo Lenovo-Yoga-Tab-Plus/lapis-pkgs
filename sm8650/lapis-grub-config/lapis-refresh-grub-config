@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BOOT_DIR=/boot
+GRUB_CFG="$BOOT_DIR/grub2/grub.cfg"
+DTB_REL=dtbs/qcom/sm8650-lenovo-tb520fu.dtb
+KERNEL_REL=Image
+INITRAMFS_REL=initramfs.img
+DEFAULT_CMDLINE='root=LABEL=eos-lapis rw rootwait console=tty0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused quiet splash plymouth.force-scale=1'
+
+log() {
+    printf 'lapis-grub-config: %s\n' "$*" >&2
+}
+
+if ! mountpoint -q "$BOOT_DIR"; then
+    log "$BOOT_DIR is not a separate mount; refusing to write GRUB config"
+    exit 0
+fi
+
+if [ ! -f "$BOOT_DIR/$KERNEL_REL" ]; then
+    log "missing $BOOT_DIR/$KERNEL_REL"
+    exit 1
+fi
+if [ ! -f "$BOOT_DIR/$DTB_REL" ]; then
+    log "missing $BOOT_DIR/$DTB_REL"
+    exit 1
+fi
+
+initramfs_source=
+if [ -n "${LAPIS_INITRAMFS_SOURCE:-}" ] && [ -f "${LAPIS_INITRAMFS_SOURCE}" ]; then
+    initramfs_source="${LAPIS_INITRAMFS_SOURCE}"
+elif [ -f "$BOOT_DIR/$INITRAMFS_REL" ]; then
+    initramfs_source="$BOOT_DIR/$INITRAMFS_REL"
+else
+    shopt -s nullglob
+    initramfs_candidates=(/usr/lib/modules/*/initramfs-*.img)
+    shopt -u nullglob
+    if [ "${#initramfs_candidates[@]}" -gt 0 ]; then
+        initramfs_source="$(printf '%s\n' "${initramfs_candidates[@]}" | xargs -r ls -1t | head -n1)"
+    fi
+fi
+if [ -z "$initramfs_source" ]; then
+    log "no initramfs image found"
+    exit 1
+fi
+if [ "$(realpath -m "$initramfs_source")" != "$(realpath -m "$BOOT_DIR/$INITRAMFS_REL")" ]; then
+    cp -f "$initramfs_source" "$BOOT_DIR/$INITRAMFS_REL"
+fi
+
+cmdline="$(tr '\n' ' ' < /etc/cmdline 2>/dev/null | sed -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//' || true)"
+if [ -z "$cmdline" ] && [ -f "$BOOT_DIR/cmdline.txt" ]; then
+    cmdline="$(tr '\n' ' ' < "$BOOT_DIR/cmdline.txt" | sed -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//')"
+fi
+if [ -z "$cmdline" ]; then
+    cmdline="$DEFAULT_CMDLINE"
+fi
+
+mkdir -p "$BOOT_DIR/grub2"
+tmp_cfg="$(mktemp)"
+trap 'rm -f "$tmp_cfg"' EXIT
+
+cat > "$tmp_cfg" <<EOF
+search --no-floppy --set=root --label boot
+set timeout=15
+set timeout_style=menu
+set default=0
+
+menuentry 'Linux' {
+  search --no-floppy --set=root --label boot
+  linux /$KERNEL_REL $cmdline
+  devicetree /$DTB_REL
+  initrd /$INITRAMFS_REL
+}
+
+menuentry 'Android' {
+  search --no-floppy --set=root --file /EFI/ANDROID/boot.efi
+  linux /EFI/ANDROID/boot.efi
+}
+EOF
+
+install -Dm644 "$tmp_cfg" "$GRUB_CFG"
+log "wrote $GRUB_CFG"

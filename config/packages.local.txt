@@ -9,4 +9,6 @@ lapis-configs
 lapis-utils
 lapis-hotspot
 lapis-adbd
+lapis-dracut
+lapis-grub-config
 lapis-metapkg

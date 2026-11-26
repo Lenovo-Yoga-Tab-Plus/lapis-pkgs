@@ -1,0 +1,20 @@
+pkgname=lapis-grub-config
+pkgver=1.0
+pkgrel=1
+pkgdesc='GRUB config refresh helper for the Lenovo Yoga Tab Plus'
+arch=('any')
+license=('MIT')
+depends=('bash' 'coreutils' 'util-linux')
+install='lapis-grub-config.install'
+source=(
+  'lapis-refresh-grub-config'
+  '95-lapis-refresh-grub-config.hook'
+)
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -Dm755 lapis-refresh-grub-config \
+    "$pkgdir/usr/local/bin/lapis-refresh-grub-config"
+  install -Dm644 95-lapis-refresh-grub-config.hook \
+    "$pkgdir/usr/share/libalpm/hooks/95-lapis-refresh-grub-config.hook"
+}
