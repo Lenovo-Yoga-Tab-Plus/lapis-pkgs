@@ -1,0 +1,77 @@
+#!/bin/sh
+# The kernel resolves PARTUUID= and PARTLABEL= only. root=LABEL=eos-lapis is
+# the filesystem label, so this initramfs is what mounts it.
+export PATH=/bin:/sbin
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+ROOT_SPEC=""
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in
+        root=*) ROOT_SPEC="${arg#root=}" ;;
+    esac
+done
+if [ -z "$ROOT_SPEC" ]; then
+    ROOT_SPEC="LABEL=eos-lapis"
+fi
+
+i=0
+ROOT=""
+while [ "$i" -lt 30 ]; do
+    ROOT=$(findfs "$ROOT_SPEC" 2>/dev/null || true)
+    if [ -n "$ROOT" ]; then
+        break
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+
+mkdir -p /newroot
+if [ -z "$ROOT" ] || ! mount -t ext4 -o rw,relatime "$ROOT" /newroot; then
+    echo "lapis: cannot mount $ROOT_SPEC" > /dev/kmsg
+    exec sh
+fi
+if [ ! -x /newroot/usr/lib/systemd/systemd ]; then
+    echo "lapis: $ROOT_SPEC has no systemd" > /dev/kmsg
+    exec sh
+fi
+echo "lapis: $ROOT_SPEC is $ROOT" > /dev/kmsg
+
+# The network link is created here. The installed system does not start it
+# again after switch_root. NCM is built into linux-lapis; the serial function
+# is not, so this gadget is network only.
+mount -t configfs configfs /sys/kernel/config
+G=/sys/kernel/config/usb_gadget/g1
+mkdir -p "$G/strings/0x409" "$G/configs/c.1/strings/0x409"
+echo 0x17ef > "$G/idVendor"
+echo 0x7ed9 > "$G/idProduct"
+echo 0x0100 > "$G/bcdDevice"
+echo 0x0200 > "$G/bcdUSB"
+echo Lenovo > "$G/strings/0x409/manufacturer"
+echo "TB520FU Mainline Linux" > "$G/strings/0x409/product"
+echo NCM > "$G/configs/c.1/strings/0x409/configuration"
+echo 500 > "$G/configs/c.1/MaxPower"
+mkdir -p "$G/functions/ncm.usb0"
+echo 02:17:ef:52:0f:01 > "$G/functions/ncm.usb0/dev_addr"
+echo 02:17:ef:52:0f:02 > "$G/functions/ncm.usb0/host_addr"
+ln -s "$G/functions/ncm.usb0" "$G/configs/c.1/"
+i=0
+while [ "$i" -lt 30 ]; do
+    UDC=$(ls /sys/class/udc 2>/dev/null | head -n 1)
+    if [ -n "$UDC" ]; then
+        echo "$UDC" > "$G/UDC" && break
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+IF=$(cat "$G/functions/ncm.usb0/ifname" 2>/dev/null || true)
+[ -n "$IF" ] || IF=usb0
+ip link set "$IF" up
+ip addr add 172.16.42.1/24 dev "$IF"
+
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+exec switch_root /newroot /usr/lib/systemd/systemd

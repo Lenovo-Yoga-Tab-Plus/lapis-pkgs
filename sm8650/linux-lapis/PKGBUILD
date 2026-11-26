@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=5
+pkgrel=6
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
@@ -33,7 +33,7 @@ prepare() {
     --exclude '.tmp_versions' \
     "$_kernel_src/" "$srcdir/linux/"
   cd "$srcdir/linux"
-  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} caihong_defconfig
+  make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} lapis_defconfig
   ./scripts/config --file .config -d LOCALVERSION_AUTO
   ./scripts/config --file .config --set-str LOCALVERSION "-lapis"
   # The panel has to come up in the kernel. A module leaves the firmware
@@ -53,8 +53,9 @@ prepare() {
   ./scripts/config --file .config -e ANDROID_BINDER_IPC
   ./scripts/config --file .config -e ANDROID_BINDERFS
   ./scripts/config --file .config --set-str ANDROID_BINDER_DEVICES ""
-  # The bring-up initramfs is a separate tree. This package boots the root
-  # named on the kernel command line.
+  # Nothing is embedded. GRUB loads /boot/initramfs.img, which is what
+  # resolves root=LABEL=eos-lapis. The kernel itself only accepts PARTUUID=
+  # and PARTLABEL=.
   ./scripts/config --file .config --set-str INITRAMFS_SOURCE ""
   make ARCH="$_carch" ${CROSS_COMPILE:+CROSS_COMPILE="$CROSS_COMPILE"} olddefconfig
 }
@@ -91,6 +92,11 @@ package_linux-lapis() {
   # vmlinuz-$kernver is the packaged compressed image.
   install -Dm644 arch/arm64/boot/Image.gz "$pkgdir/boot/vmlinuz-$kernver"
   install -Dm644 arch/arm64/boot/Image "$pkgdir/boot/Image"
+  # GRUB loads this beside Image. It mounts the filesystem label from
+  # root=LABEL=eos-lapis; the kernel cannot.
+  "$startdir/initramfs/build-initramfs.sh" \
+    "$startdir/../../../initramfs_build/mini_stage/bin/busybox" \
+    "$pkgdir/boot/initramfs.img"
   install -Dm644 System.map "$pkgdir/boot/System.map-$kernver"
   install -Dm644 .config "$pkgdir/boot/config-$kernver"
 
