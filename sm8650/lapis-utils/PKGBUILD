@@ -1,6 +1,6 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=7
+pkgrel=8
 pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
