@@ -1,7 +1,7 @@
 pkgbase=linux-lapis
 pkgname=(linux-lapis linux-lapis-headers)
 pkgver=7.3.0
-pkgrel=8
+pkgrel=9
 pkgdesc='Kernel for the Lenovo Yoga Tab Plus (TB520FU)'
 arch=('aarch64')
 _carch=arm64
