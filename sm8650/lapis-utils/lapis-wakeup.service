@@ -1,0 +1,10 @@
+[Unit]
+Description=Allow only the power key to wake the tablet
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/systemd/system-sleep/lapis-wakeup boot
+
+[Install]
+WantedBy=multi-user.target

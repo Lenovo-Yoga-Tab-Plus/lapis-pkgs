@@ -1,6 +1,6 @@
 pkgname=lapis-configs
 pkgver=1.1
-pkgrel=11
+pkgrel=12
 pkgdesc='Network, camera, logind, and session configuration for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT' 'CC0-1.0')
@@ -25,8 +25,9 @@ source=(
   'wrap-gpu-name'
   'lapis-gpu-name.hook'
   'lapis-bt-suspend'
+  'sleep.conf'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm644 lapis.conf \
@@ -64,6 +65,8 @@ package() {
     "$pkgdir/usr/share/libalpm/hooks/lapis-gpu-name.hook"
   install -Dm755 lapis-bt-suspend \
     "$pkgdir/usr/lib/systemd/system-sleep/lapis-bt-suspend"
+  install -Dm644 sleep.conf \
+    "$pkgdir/usr/lib/systemd/sleep.conf.d/10-lapis.conf"
 
   install -d "$pkgdir/etc/systemd/system/getty.target.wants"
   ln -s /usr/lib/systemd/system/serial-getty@.service \

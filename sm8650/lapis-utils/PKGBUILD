@@ -1,6 +1,6 @@
 pkgname=lapis-utils
 pkgver=1.0
-pkgrel=8
+pkgrel=9
 pkgdesc='Slot, charge, flashlight, factory MAC, tablet-mode, Android auto-brightness, and clock tools for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('GPL-2.0-only')
@@ -34,8 +34,10 @@ source=(
   'lapis-privacy-led'
   'lapis-privacy-led.service'
   'lapis-privacy-led.conf'
+  'lapis-wakeup'
+  'lapis-wakeup.service'
 )
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 build() {
   gcc -shared -fPIC -O2 -Wall -Wextra -o liblapis-gsd-brightness.so lapis-gsd-brightness.c -ldl
@@ -80,6 +82,10 @@ package() {
     "$pkgdir/usr/lib/systemd/system/lapis-privacy-led.service"
   install -Dm644 lapis-privacy-led.conf \
     "$pkgdir/usr/lib/modules-load.d/lapis-privacy-led.conf"
+  install -Dm755 lapis-wakeup \
+    "$pkgdir/usr/lib/systemd/system-sleep/lapis-wakeup"
+  install -Dm644 lapis-wakeup.service \
+    "$pkgdir/usr/lib/systemd/system/lapis-wakeup.service"
   install -d "$pkgdir/usr/lib/systemd/system/local-fs.target.wants" \
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants" \
     "$pkgdir/usr/lib/systemd/system/sysinit.target.wants" \
@@ -96,6 +102,8 @@ package() {
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-autobright.service"
   ln -s ../lapis-privacy-led.service \
     "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-privacy-led.service"
+  ln -s ../lapis-wakeup.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/lapis-wakeup.service"
   ln -s ../lapis-clock-restore.service \
     "$pkgdir/usr/lib/systemd/system/sysinit.target.wants/lapis-clock-restore.service"
   ln -s ../lapis-clock-save.service \

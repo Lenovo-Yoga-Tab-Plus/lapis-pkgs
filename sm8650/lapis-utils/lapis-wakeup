@@ -1,0 +1,20 @@
+#!/bin/sh
+# Deep suspend calls PSCI SYSTEM_SUSPEND, and this firmware returns from
+# that call immediately, so the screen comes back on. s2idle freezes
+# userspace, suspends devices, and holds. Only the power key may wake it.
+case "$1" in
+pre|boot) ;;
+*) exit 0 ;;
+esac
+
+if [ -w /sys/power/mem_sleep ]; then
+    printf s2idle > /sys/power/mem_sleep 2>/dev/null || true
+fi
+
+find /sys/devices -path '*/power/wakeup' -type f 2>/dev/null |
+while read -r node; do
+    case "$node" in
+        *pwrkey*) continue ;;
+    esac
+    printf disabled > "$node" 2>/dev/null || true
+done
