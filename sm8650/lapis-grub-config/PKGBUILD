@@ -1,6 +1,6 @@
 pkgname=lapis-grub-config
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='GRUB config refresh helper for the Lenovo Yoga Tab Plus'
 arch=('any')
 license=('MIT')

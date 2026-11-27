@@ -69,7 +69,9 @@ main() {
     fi
 
     log "building initramfs for $kernver"
-    dracut --force --no-hostonly --kver "$kernver" "$initramfs"
+    dracut --force --no-hostonly --no-kernel \
+        --omit "firmware kernel-modules kernel-modules-extra kernel-network-modules bluetooth crypt systemd-cryptsetup dm lvm mdraid multipath nfs nbd iscsi fcoe fips cifs qemu qemu-net hwdb resume qcom-adsp devicetree-firmware" \
+        --kver "$kernver" "$initramfs"
 
     publish_boot_copies "$kernver" "$initramfs"
     log "published /boot/initramfs.img"

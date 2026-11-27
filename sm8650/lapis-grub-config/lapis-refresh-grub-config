@@ -47,11 +47,22 @@ if [ "$(realpath -m "$initramfs_source")" != "$(realpath -m "$BOOT_DIR/$INITRAMF
     cp -f "$initramfs_source" "$BOOT_DIR/$INITRAMFS_REL"
 fi
 
-cmdline="$(tr '\n' ' ' < /etc/cmdline 2>/dev/null | sed -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//' || true)"
-if [ -z "$cmdline" ] && [ -f "$BOOT_DIR/cmdline.txt" ]; then
-    cmdline="$(tr '\n' ' ' < "$BOOT_DIR/cmdline.txt" | sed -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//')"
+read_cmdline() {
+    local file="$1"
+    tr '\n' ' ' < "$file" | sed -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//'
+}
+
+cmdline=
+if [ -f /etc/cmdline ]; then
+    cmdline="$(read_cmdline /etc/cmdline)"
 fi
-if [ -z "$cmdline" ]; then
+# An old /etc/cmdline still says ignore_loglevel. That covers the splash.
+if [ -z "$cmdline" ] || printf '%s' "$cmdline" | grep -q 'ignore_loglevel'; then
+    if [ -f "$BOOT_DIR/cmdline.txt" ]; then
+        cmdline="$(read_cmdline "$BOOT_DIR/cmdline.txt")"
+    fi
+fi
+if [ -z "$cmdline" ] || printf '%s' "$cmdline" | grep -q 'ignore_loglevel'; then
     cmdline="$DEFAULT_CMDLINE"
 fi
 
@@ -59,9 +70,26 @@ mkdir -p "$BOOT_DIR/grub2"
 tmp_cfg="$(mktemp)"
 trap 'rm -f "$tmp_cfg"' EXIT
 
-cat > "$tmp_cfg" <<EOF
+previous=
+for candidate in "$BOOT_DIR"/Image.*; do
+    [ -f "$candidate" ] || continue
+    case "$candidate" in
+        *.txt|*.small|*/Image.booted) continue ;;
+    esac
+    if [ "$(stat -c '%s' "$candidate")" -lt 8000000 ]; then
+        continue
+    fi
+    if cmp -s "$candidate" "$BOOT_DIR/$KERNEL_REL"; then
+        continue
+    fi
+    previous="${candidate#"$BOOT_DIR"/}"
+    break
+done
+
+{
+    cat <<EOF
 search --no-floppy --set=root --label boot
-set timeout=15
+set timeout=10
 set timeout_style=menu
 set default=0
 
@@ -71,12 +99,32 @@ menuentry 'Linux' {
   devicetree /$DTB_REL
   initrd /$INITRAMFS_REL
 }
+EOF
+    if [ -n "$previous" ]; then
+        cat <<EOF
+
+menuentry 'Linux (previous kernel)' {
+  search --no-floppy --set=root --label boot
+  linux /$previous $cmdline
+  devicetree /$DTB_REL
+  initrd /$INITRAMFS_REL
+}
+EOF
+    fi
+    cat <<EOF
 
 menuentry 'Android' {
   search --no-floppy --set=root --file /EFI/ANDROID/boot.efi
   linux /EFI/ANDROID/boot.efi
 }
 EOF
+} > "$tmp_cfg"
 
 install -Dm644 "$tmp_cfg" "$GRUB_CFG"
 log "wrote $GRUB_CFG"
+
+esp_cfg=/boot/efi/EFI/BOOT/grub.cfg
+if [ -d /boot/efi/EFI/BOOT ]; then
+    install -Dm644 "$tmp_cfg" "$esp_cfg"
+    log "wrote $esp_cfg"
+fi
